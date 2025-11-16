@@ -311,6 +311,90 @@ ipcMain.handle('graphbus:load-graph', async (event, artifactsDir) => {
     }
 });
 
+// Rehydrate full state from .graphbus folder
+ipcMain.handle('graphbus:rehydrate-state', async (event, workingDirectory) => {
+    try {
+        const graphbusDir = path.join(workingDirectory, '.graphbus');
+
+        if (!fs.existsSync(graphbusDir)) {
+            return { success: false, error: '.graphbus directory not found' };
+        }
+
+        const state = {
+            hasGraphbus: true,
+            graph: null,
+            buildSummary: null,
+            conversationHistory: null,
+            negotiations: null,
+            modifiedFiles: null,
+            agents: null,
+            topics: null
+        };
+
+        // Load graph.json
+        const graphPath = path.join(graphbusDir, 'graph.json');
+        if (fs.existsSync(graphPath)) {
+            const graphData = JSON.parse(fs.readFileSync(graphPath, 'utf-8'));
+            state.graph = {
+                nodes: graphData.nodes.map(node => ({
+                    id: node.name,
+                    name: node.name,
+                    module: node.data.module,
+                    class_name: node.data.class_name,
+                    methods: node.data.methods || [],
+                    subscriptions: node.data.subscriptions || []
+                })),
+                edges: graphData.edges.map(edge => ({
+                    source: edge.source,
+                    target: edge.target,
+                    type: edge.data?.type || 'depends_on'
+                }))
+            };
+        }
+
+        // Load build_summary.json
+        const buildSummaryPath = path.join(graphbusDir, 'build_summary.json');
+        if (fs.existsSync(buildSummaryPath)) {
+            state.buildSummary = JSON.parse(fs.readFileSync(buildSummaryPath, 'utf-8'));
+        }
+
+        // Load conversation_history.json
+        const conversationPath = path.join(graphbusDir, 'conversation_history.json');
+        if (fs.existsSync(conversationPath)) {
+            state.conversationHistory = JSON.parse(fs.readFileSync(conversationPath, 'utf-8'));
+        }
+
+        // Load negotiations.json
+        const negotiationsPath = path.join(graphbusDir, 'negotiations.json');
+        if (fs.existsSync(negotiationsPath)) {
+            state.negotiations = JSON.parse(fs.readFileSync(negotiationsPath, 'utf-8'));
+        }
+
+        // Load modified_files.json
+        const modifiedFilesPath = path.join(graphbusDir, 'modified_files.json');
+        if (fs.existsSync(modifiedFilesPath)) {
+            state.modifiedFiles = JSON.parse(fs.readFileSync(modifiedFilesPath, 'utf-8'));
+        }
+
+        // Load agents.json
+        const agentsPath = path.join(graphbusDir, 'agents.json');
+        if (fs.existsSync(agentsPath)) {
+            state.agents = JSON.parse(fs.readFileSync(agentsPath, 'utf-8'));
+        }
+
+        // Load topics.json
+        const topicsPath = path.join(graphbusDir, 'topics.json');
+        if (fs.existsSync(topicsPath)) {
+            state.topics = JSON.parse(fs.readFileSync(topicsPath, 'utf-8'));
+        }
+
+        return { success: true, result: state };
+    } catch (error) {
+        console.error('Error rehydrating state:', error);
+        return { success: false, error: error.message };
+    }
+});
+
 ipcMain.handle('graphbus:list-agents', async (event) => {
     try {
         const result = await pythonBridge.listAgents();

@@ -1539,13 +1539,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize working directory first
     await initializeWorkingDirectory();
 
-    // Try to load existing graph data if available
+    // Try to rehydrate complete state from .graphbus folder
+    // This includes: graph, conversation history, build status, negotiations, etc.
     const hasExistingState = await checkAndLoadExistingState();
-
-    // Load previous conversation if exists
-    if (hasExistingState) {
-        await loadConversation();
-    }
 
     // Start polling on load
     startStatusPolling();
@@ -1561,56 +1557,98 @@ document.addEventListener('DOMContentLoaded', async () => {
         workflowState.phase = 'initial';
         setTimeout(() => orchestrateWorkflow(), 500);
     }
-
-    // Highlight the first panel on load
-    setTimeout(() => highlightActivePanel(), 100);
 });
 
-// Check for and load existing GraphBus state
+// Rehydrate complete state from .graphbus folder
 async function checkAndLoadExistingState() {
     try {
-        const artifactsDir = `${workingDirectory}/.graphbus`;
+        // Call the new rehydrate-state IPC handler
+        const result = await window.electronAPI.invoke('graphbus:rehydrate-state', workingDirectory);
 
-        // First check if the directory exists via a simple command
-        const checkResult = await window.graphbus.runCommand(`test -d "${artifactsDir}" && echo "exists" || echo "missing"`);
-
-        if (!checkResult.success || !checkResult.result.stdout.includes('exists')) {
+        if (!result.success) {
             console.log('No .graphbus directory found in', workingDirectory);
             return false;
         }
 
-        // Now try to load the graph
-        const result = await window.graphbus.loadGraph(artifactsDir);
+        const state = result.result;
+        console.log('Rehydrating state from .graphbus:', state);
 
-        if (result.success && result.result) {
-            const graphData = result.result;
+        // 1. Restore graph visualization
+        if (state.graph && state.graph.nodes && state.graph.nodes.length > 0) {
+            workflowState.hasBuilt = true;
+            workflowState.phase = 'built';
+            currentArtifactsDir = `${workingDirectory}/.graphbus`;
 
-            if (graphData.nodes && graphData.nodes.length > 0) {
-                // We have existing agents built
-                workflowState.hasBuilt = true;
-                workflowState.phase = 'built';
-                currentArtifactsDir = artifactsDir;
+            // Display the graph with dependencies
+            displayAgents(state.graph.nodes, state.graph.edges || []);
 
-                // Display the graph with dependencies
-                displayAgents(graphData.nodes, graphData.edges || []);
+            addMessage(`🔄 Rehydrated GraphBus project with ${state.graph.nodes.length} agent(s)`, 'system');
+        }
 
-                addMessage(`✓ Found existing GraphBus project with ${graphData.nodes.length} agent(s)`, 'system');
-                updateSystemStateDisplay();
+        // 2. Restore conversation history
+        if (state.conversationHistory && state.conversationHistory.messages) {
+            const messages = state.conversationHistory.messages;
+            console.log(`Restoring ${messages.length} conversation messages`);
 
-                // Update Claude with graph state
-                if (workflowState.claudeInitialized) {
-                    const agentNames = graphData.nodes.map(n => n.name).join(', ');
-                    await window.graphbus.claudeAddSystemMessage(
-                        `Graph loaded: ${graphData.nodes.length} agents found (${agentNames})`
-                    );
-                }
+            // Clear existing messages
+            const messagesContainer = document.getElementById('messages');
+            if (messagesContainer) {
+                messagesContainer.innerHTML = '';
+            }
 
-                return true;
+            // Restore each message
+            messages.forEach(msg => {
+                addMessage(msg.text, msg.type);
+            });
+
+            addMessage('✓ Conversation history restored', 'system');
+        }
+
+        // 3. Restore build summary
+        if (state.buildSummary) {
+            console.log('Build summary:', state.buildSummary);
+
+            // Update system state display with build info
+            const builtStatus = document.getElementById('builtStatus');
+            if (builtStatus) {
+                builtStatus.textContent = `${state.buildSummary.num_agents} agents`;
+            }
+
+            // Show negotiation info if available
+            if (state.buildSummary.num_negotiations > 0) {
+                addMessage(`📊 Found ${state.buildSummary.num_negotiations} negotiation rounds in history`, 'system');
+            }
+
+            // Show modified files if available
+            if (state.buildSummary.modified_files && state.buildSummary.modified_files.length > 0) {
+                addMessage(`📝 ${state.buildSummary.modified_files.length} file(s) modified by negotiations`, 'system');
             }
         }
-        return false;
+
+        // 4. Restore negotiation history
+        if (state.negotiations && state.negotiations.length > 0) {
+            console.log(`Found ${state.negotiations.length} negotiations`);
+
+            // Count unique rounds
+            const rounds = new Set(state.negotiations.map(n => n.round));
+            const totalCommits = state.negotiations.length;
+
+            addMessage(`🤝 Negotiation history: ${totalCommits} commits across ${rounds.size} round(s)`, 'system');
+        }
+
+        // 5. Update workflow state display
+        updateSystemStateDisplay();
+
+        // 6. Update Claude with restored state
+        if (workflowState.claudeInitialized && state.graph) {
+            const agentNames = state.graph.nodes.map(n => n.name).join(', ');
+            await window.graphbus.claudeAddSystemMessage(
+                `State rehydrated: ${state.graph.nodes.length} agents (${agentNames}), ${state.buildSummary?.num_negotiations || 0} negotiations completed`
+            );
+        }
+
+        return true;
     } catch (error) {
-        // No existing state, that's fine - don't show error
         console.log('No existing GraphBus state found:', error.message);
         return false;
     }
