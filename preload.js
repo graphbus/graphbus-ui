@@ -1,0 +1,39 @@
+// preload.js - Secure bridge between renderer and main process
+const { contextBridge, ipcRenderer } = require('electron');
+
+// Expose protected methods to renderer
+contextBridge.exposeInMainWorld('graphbus', {
+    // Python execution
+    executePython: (code) => ipcRenderer.invoke('python:execute', code),
+
+    // GraphBus operations
+    build: (config) => ipcRenderer.invoke('graphbus:build', config),
+    startRuntime: (config) => ipcRenderer.invoke('graphbus:start-runtime', config),
+    stopRuntime: () => ipcRenderer.invoke('graphbus:stop-runtime'),
+    callMethod: (agent, method, args) => ipcRenderer.invoke('graphbus:call-method', agent, method, args),
+    publishEvent: (topic, payload) => ipcRenderer.invoke('graphbus:publish-event', topic, payload),
+    getStats: () => ipcRenderer.invoke('graphbus:get-stats'),
+    loadGraph: (artifactsDir) => ipcRenderer.invoke('graphbus:load-graph', artifactsDir),
+    listAgents: () => ipcRenderer.invoke('graphbus:list-agents'),
+
+    // Working directory operations
+    getWorkingDirectory: () => ipcRenderer.invoke('system:get-cwd'),
+    setWorkingDirectory: (path) => ipcRenderer.invoke('system:set-cwd', path),
+    browseDirectory: () => ipcRenderer.invoke('system:browse-directory'),
+    runCommand: (command) => ipcRenderer.invoke('system:run-command', command),
+
+    // Claude AI operations
+    claudeInitialize: (apiKey, shouldSave = true) => ipcRenderer.invoke('claude:initialize', apiKey, shouldSave),
+    claudeChat: (message, systemState) => ipcRenderer.invoke('claude:chat', message, systemState),
+    claudeAddSystemMessage: (message) => ipcRenderer.invoke('claude:add-system-message', message),
+    claudeIsInitialized: () => ipcRenderer.invoke('claude:is-initialized'),
+    claudeUpdateDirectory: (directory) => ipcRenderer.invoke('claude:update-directory', directory),
+    claudeDeleteConfig: () => ipcRenderer.invoke('claude:delete-config'),
+
+    // Conversation persistence
+    conversationSave: (messages) => ipcRenderer.invoke('conversation:save', messages),
+    conversationLoad: () => ipcRenderer.invoke('conversation:load'),
+    conversationClear: () => ipcRenderer.invoke('conversation:clear')
+});
+
+console.log('Preload script loaded - graphbus API exposed to renderer');

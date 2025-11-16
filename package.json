@@ -1,0 +1,46 @@
+{
+  "name": "graphbus-ui",
+  "version": "1.0.0",
+  "description": "Electron UI for GraphBus agent orchestration with natural language control",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "start:dir": "echo 'Usage: npm run start:dir /path/to/directory' && echo 'Or: npm start -- --dir=/path/to/directory'",
+    "build": "electron-builder",
+    "dev": "electron . --enable-logging"
+  },
+  "keywords": [
+    "graphbus",
+    "electron",
+    "agents",
+    "orchestration",
+    "nlp"
+  ],
+  "author": "GraphBus",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.9.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.69.0",
+    "python-shell": "^5.0.0"
+  },
+  "build": {
+    "appId": "com.graphbus.ui",
+    "productName": "GraphBus UI",
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "icon": "assets/icon.icns"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer.js",
+      "python_bridge.js",
+      "index.html",
+      "styles.css",
+      "assets/**/*"
+    ]
+  }
+}

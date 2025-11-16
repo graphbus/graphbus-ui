@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GraphBus UI</title>
+    <link rel="stylesheet" href="styles.css">
+    <!-- vis.js for graph visualization -->
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <style>
+        #graphCanvas {
+            width: 100%;
+            height: 100%;
+            border: 1px solid #333;
+            background: #1a1a1a;
+        }
+
+        /* Style vis.js navigation buttons for dark theme */
+        .vis-network .vis-navigation .vis-button {
+            background-color: rgba(102, 126, 234, 0.8) !important;
+            border: 1px solid #667eea !important;
+        }
+
+        .vis-network .vis-navigation .vis-button:hover {
+            background-color: rgba(129, 140, 248, 0.9) !important;
+            box-shadow: 0 0 10px rgba(102, 126, 234, 0.5) !important;
+        }
+
+        /* Make sure buttons are visible */
+        .vis-network .vis-navigation {
+            opacity: 1 !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Main Grid Layout -->
+        <div class="grid-layout">
+            <!-- Top Left: Conversation Display -->
+            <div class="panel message-animations">
+                <div class="panel-header">
+                    <h2>💬 Conversation</h2>
+                    <span class="status-dot" id="statusDot"></span>
+                </div>
+                <div class="panel-content" id="messageFlow">
+                    <div id="messages" class="chat-messages"></div>
+                </div>
+            </div>
+
+            <!-- Top Right: Graph View -->
+            <div class="panel graph-view">
+                <div class="panel-header">
+                    <h2>🕸️ Agent Graph</h2>
+                    <span class="mini-label" id="graphStatus">Auto-updating</span>
+                </div>
+                <div class="panel-content" style="padding: 0; position: relative;">
+                    <div id="graphCanvas"></div>
+
+                    <!-- Graph Controls -->
+                    <div id="graphControls" style="position: absolute; top: 10px; left: 10px; display: flex; gap: 8px;">
+                        <button onclick="fitGraphToView()" style="padding: 8px 12px; background: rgba(102,126,234,0.8); border: 1px solid #667eea; border-radius: 5px; color: white; cursor: pointer; font-size: 11px;">
+                            🔍 Fit View
+                        </button>
+                        <button onclick="resetGraphPhysics()" style="padding: 8px 12px; background: rgba(102,126,234,0.8); border: 1px solid #667eea; border-radius: 5px; color: white; cursor: pointer; font-size: 11px;">
+                            ⚡ Reset Layout
+                        </button>
+                        <button onclick="negotiateAllAgents()" style="padding: 8px 12px; background: rgba(245,158,11,0.8); border: 1px solid #f59e0b; border-radius: 5px; color: white; cursor: pointer; font-size: 11px;">
+                            🤝 Negotiate All
+                        </button>
+                    </div>
+
+                    <!-- Graph Legend -->
+                    <div id="graphLegend" style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.8); padding: 12px; border-radius: 5px; border: 1px solid #333; font-size: 11px;">
+                        <div style="margin-bottom: 8px; font-weight: bold; color: #888;">Interactions:</div>
+                        <div style="margin-bottom: 5px;">🖱️ Click - View details</div>
+                        <div style="margin-bottom: 5px;">🖱️ Double-click - Negotiate</div>
+                        <div style="margin-bottom: 5px;">🖱️ Drag - Move nodes</div>
+                        <div style="margin-bottom: 10px;">🖱️ Scroll - Zoom</div>
+                        <div style="border-top: 1px solid #333; padding-top: 8px; margin-top: 8px;">
+                            <div style="margin-bottom: 5px;"><span style="color: #667eea;">●</span> Agent</div>
+                            <div><span style="color: #f59e0b;">→</span> Depends On</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Left: System State -->
+            <div class="panel state-transitions">
+                <div class="panel-header">
+                    <h2>🔄 System State</h2>
+                    <span class="mini-label" id="workflowPhase">Initializing</span>
+                </div>
+                <div class="panel-content" id="stateTransitions">
+                    <div id="systemState" style="padding: 20px; color: #aaa;">
+                        <div style="margin-bottom: 12px;">
+                            <strong style="color: #667eea;">Status:</strong>
+                            <span id="phaseStatus">Starting up...</span>
+                        </div>
+                        <div style="margin-bottom: 12px;">
+                            <strong style="color: #667eea;">Agents Built:</strong>
+                            <span id="builtStatus">Not yet</span>
+                        </div>
+                        <div>
+                            <strong style="color: #667eea;">Runtime:</strong>
+                            <span id="runtimeStatus">Stopped</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Right: Settings & Quick Tips -->
+            <div class="panel code-diffs">
+                <div class="panel-header">
+                    <h2>⚙️ Settings</h2>
+                </div>
+                <div class="panel-content" id="settingsPanel">
+                    <div style="padding: 20px;">
+                        <!-- API Key Section - Connected View -->
+                        <div class="settings-section" id="apiKeyConnectedView" style="display: none;">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-weight: 600; color: #667eea;">🤖 Claude AI</span>
+                                    <span class="status-badge connected" id="claudeStatusBadge">Connected</span>
+                                </div>
+                                <button onclick="showApiKeyConfig()" class="settings-btn">Change Key</button>
+                            </div>
+                            <p style="font-size: 12px; color: #888;">
+                                ✓ API key configured and ready<br/>
+                                💾 Saved to: <code style="color: #667eea;">~/.graphbus/claude_config.json</code>
+                            </p>
+                        </div>
+
+                        <!-- API Key Section - Setup View -->
+                        <div class="settings-section" id="apiKeySetupView" style="display: none;">
+                            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                <span style="font-weight: 600; color: #667eea;">🤖 Claude AI</span>
+                                <span class="status-badge not-configured" id="claudeStatusBadgeSetup">Not Configured</span>
+                            </div>
+                            <div style="margin-bottom: 12px;">
+                                <input
+                                    type="password"
+                                    id="apiKeyInput"
+                                    placeholder="sk-ant-api03-..."
+                                    class="settings-input"
+                                    style="width: 100%; margin-bottom: 8px;"
+                                />
+                                <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                                    <button onclick="saveApiKey()" class="settings-btn primary">Save & Connect</button>
+                                    <button onclick="toggleApiKeyVisibility()" class="settings-btn">👁️</button>
+                                    <button onclick="hideApiKeyConfig()" class="settings-btn">Cancel</button>
+                                </div>
+                                <button onclick="clearApiKey()" class="settings-btn danger" style="width: 100%;">Clear Saved Key</button>
+                                <p style="font-size: 11px; color: #888; margin-top: 8px;">
+                                    Get your API key from <a href="https://console.anthropic.com/" target="_blank" style="color: #667eea;">console.anthropic.com</a>
+                                </p>
+                                <p style="font-size: 11px; color: #888; margin-top: 4px;">
+                                    💾 Saved to: <code style="color: #667eea;">~/.graphbus/claude_config.json</code>
+                                </p>
+                                <p style="font-size: 11px; color: #888; margin-top: 4px;">
+                                    🔧 Or set: <code style="color: #667eea;">ANTHROPIC_API_KEY</code> env variable
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Quick Tips -->
+                        <div class="settings-section" style="border-top: 1px solid #333; padding-top: 16px; margin-top: 16px;">
+                            <div style="font-weight: 600; color: #667eea; margin-bottom: 8px;">💡 Quick Tips</div>
+                            <div style="color: #aaa; font-size: 13px; line-height: 1.6;">
+                                <p style="margin-bottom: 6px;">• Chat naturally with Claude AI</p>
+                                <p style="margin-bottom: 6px;">• Click 📁 Working Dir to change project</p>
+                                <p style="margin-bottom: 6px;">• Claude will guide you through setup</p>
+                                <p style="margin-bottom: 6px;">• Ask "what can I do?" anytime</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom: Conversational Text Box -->
+            <div class="conversation-bar">
+                <div class="stats-bar">
+                    <div class="stat-item working-dir-item">
+                        <span class="stat-label">📁 Working Dir:</span>
+                        <span class="stat-value working-dir-path" id="workingDirPath" title="Click to change">/</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">📊 Status:</span>
+                        <span class="stat-value" id="workflowStatus">Getting Started</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">→ Next:</span>
+                        <span class="stat-value" id="nextAction">Create agents</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Agents:</span>
+                        <span class="stat-value" id="nodesCount">0</span>
+                    </div>
+                    <div class="stat-item" style="margin-left: auto; opacity: 0.6;">
+                        <span class="stat-label" style="font-size: 11px;">⌨️ Tab to cycle panels • Esc to focus chat</span>
+                    </div>
+                </div>
+                <div class="chat-input-container">
+                    <input
+                        type="text"
+                        id="chatInput"
+                        placeholder="Type here to chat... (I'll guide you through everything)"
+                        autofocus
+                    />
+                    <button onclick="sendCommand()" id="sendBtn">
+                        <span>Send</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Floating Response Toast -->
+        <div id="responseToast" class="response-toast hidden">
+            <div class="toast-content"></div>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>
