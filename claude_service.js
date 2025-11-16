@@ -108,20 +108,29 @@ Core Commands:
   • graphbus inspect [artifacts-dir] - Inspect build artifacts
   • graphbus validate [agents-dir] - Validate agent definitions
 
-LLM Agent Negotiation (FULLY AVAILABLE):
-  • graphbus negotiate [artifacts-dir] --rounds 5 - Run multi-round agent negotiation on existing build
-    - Agents collaboratively improve codebase through proposals and evaluations
+LLM Agent Negotiation (FULLY AVAILABLE WITH USER INTENT):
+  • graphbus negotiate [artifacts-dir] --intent "user goal" --rounds 5
+    - Agents collaboratively improve codebase guided by user intent
+    - NEW: --intent flag guides agents toward specific goals
+    - Agents check if intent is relevant to their scope
+    - Focus improvements on the stated goal
+    - Suggest new agents if intent doesn't match existing agents
     - Arbiter resolves conflicts between agent proposals
     - Accepted changes are committed to source files
-    - Use after building to let agents enhance their own code
   • graphbus inspect-negotiation [artifacts-dir] - View negotiation history and decisions
     - Formats: table (summary), timeline (chronological), json (complete data)
     - See all proposals, evaluations, conflicts, and commits
 
 Negotiation Workflow:
 1. Build agents with --enable-agents
-2. Run negotiation: graphbus negotiate .graphbus --rounds 5
+2. Run negotiation: graphbus negotiate .graphbus --intent "optimize performance" --rounds 5
 3. Inspect results: graphbus inspect-negotiation .graphbus
+
+IMPORTANT: Always extract and use the --intent flag when user provides goals like:
+- "negotiate to improve error handling" → --intent "improve error handling"
+- "make it faster" → --intent "optimize performance"
+- "improve the schema" → --intent "improve schema design"
+- "add better logging" → --intent "enhance logging and monitoring"
 
 IMPORTANT: Always build with --enable-agents flag!
 Example: graphbus build agents/ --enable-agents
@@ -148,7 +157,9 @@ Deployment:
 
 **EXAMPLES:**
 - {"action": "run_command", "params": {"command": "graphbus build agents/ --enable-agents"}}
-- {"action": "run_command", "params": {"command": "graphbus negotiate .graphbus --rounds 5"}}
+- {"action": "run_command", "params": {"command": "graphbus negotiate .graphbus --intent \"optimize performance\" --rounds 5"}}
+- {"action": "run_command", "params": {"command": "graphbus negotiate .graphbus --intent \"improve error handling\" --rounds 3"}}
+- {"action": "run_command", "params": {"command": "graphbus negotiate .graphbus --intent \"enhance schema design\""}}
 - {"action": "run_command", "params": {"command": "graphbus inspect-negotiation .graphbus"}}
 - {"action": "run_command", "params": {"command": "graphbus inspect-negotiation .graphbus --format timeline"}}
 - {"action": "run_command", "params": {"command": "graphbus run .graphbus"}}

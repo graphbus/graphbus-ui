@@ -1151,10 +1151,18 @@ async function negotiateAgent(agentName) {
         return;
     }
 
-    addMessage(`Starting negotiation for ${agentName}...`, 'assistant');
+    // Prompt for user intent
+    const intent = prompt(`What should ${agentName} focus on improving?\n\nExamples:\n- "optimize performance"\n- "improve error handling"\n- "enhance schema design"\n- "add validation"`);
 
-    // Use Claude to run targeted negotiation
-    const command = `Tell me about negotiating ${agentName}. What should we focus on? Then run: graphbus negotiate .graphbus --rounds 3`;
+    if (!intent || intent.trim() === '') {
+        addMessage('Negotiation cancelled - no intent provided', 'system');
+        return;
+    }
+
+    addMessage(`Starting negotiation for ${agentName} with intent: "${intent}"`, 'assistant');
+
+    // Use Claude to run targeted negotiation with intent
+    const command = `Negotiate ${agentName} with the intent to "${intent}". Run: graphbus negotiate .graphbus --intent "${intent}" --rounds 3`;
 
     try {
         const response = await window.graphbus.claudeChat(command, {
@@ -1181,7 +1189,15 @@ async function negotiateAllAgents() {
         return;
     }
 
-    const command = 'negotiate all agents for 5 rounds';
+    // Prompt for user intent
+    const intent = prompt(`What should all agents focus on improving?\n\nExamples:\n- "optimize performance"\n- "improve error handling"\n- "enhance data validation"\n- "improve code quality"\n- "add comprehensive logging"`);
+
+    if (!intent || intent.trim() === '') {
+        addMessage('Negotiation cancelled - no intent provided', 'system');
+        return;
+    }
+
+    const command = `negotiate all agents with the intent to "${intent}" for 5 rounds`;
     await sendCommand(command);
 }
 
