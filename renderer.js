@@ -105,16 +105,36 @@ function updateSystemStateDisplay() {
 }
 
 // Tab switching
-function switchTab(tabName) {
-    document.querySelectorAll('.tab-content').forEach(tab => {
-        tab.classList.remove('active');
+function switchView(viewName) {
+    // Hide all views
+    document.querySelectorAll('.view').forEach(view => {
+        view.classList.remove('active');
     });
-    document.querySelectorAll('.nav-btn').forEach(btn => {
+
+    // Remove active state from all tabs
+    document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.remove('active');
     });
 
-    document.getElementById(tabName).classList.add('active');
-    document.querySelector(`[data-tab="${tabName}"]`).classList.add('active');
+    // Show selected view
+    const viewId = viewName + 'View';
+    const viewElement = document.getElementById(viewId);
+    if (viewElement) {
+        viewElement.classList.add('active');
+    }
+
+    // Activate selected tab button
+    const tabBtn = document.querySelector(`.tab-btn[data-view="${viewName}"]`);
+    if (tabBtn) {
+        tabBtn.classList.add('active');
+    }
+
+    // If switching to graph view, ensure graph is properly rendered
+    if (viewName === 'graph' && graphNetwork) {
+        setTimeout(() => {
+            graphNetwork.fit();
+        }, 300);
+    }
 }
 
 // Update Claude status badge and settings view
@@ -1441,40 +1461,20 @@ async function changeWorkingDirectory() {
     }
 }
 
-// Panel cycling state
-let focusedPanelIndex = 0;
-const panels = [
-    { id: 'messageFlow', name: 'Conversation' },
-    { id: 'graphCanvas', name: 'Agent Graph' },
-    { id: 'stateTransitions', name: 'System State' },
-    { id: 'settingsPanel', name: 'Settings' }
+// View cycling state
+let focusedViewIndex = 0;
+const views = [
+    { name: 'graph', label: 'Agent Graph' },
+    { name: 'state', label: 'System State' },
+    { name: 'settings', label: 'Settings' }
 ];
 
-// Highlight active panel
-function highlightActivePanel() {
-    // Remove highlight from all panels
-    document.querySelectorAll('.panel').forEach(panel => {
-        panel.style.boxShadow = '';
-        panel.style.borderColor = '#333';
-    });
-
-    // Highlight the active panel
-    const activePanel = document.getElementById(panels[focusedPanelIndex].id);
-    if (activePanel && activePanel.closest('.panel')) {
-        const panelElement = activePanel.closest('.panel');
-        panelElement.style.boxShadow = '0 0 0 2px #667eea';
-        panelElement.style.borderColor = '#667eea';
-    }
-
-    // Show which panel is focused in the conversation area
-    const panelName = panels[focusedPanelIndex].name;
-    console.log(`Focused: ${panelName}`);
-}
-
-// Cycle to next panel
-function cyclePanel(direction = 1) {
-    focusedPanelIndex = (focusedPanelIndex + direction + panels.length) % panels.length;
-    highlightActivePanel();
+// Cycle to next view
+function cycleView(direction = 1) {
+    focusedViewIndex = (focusedViewIndex + direction + views.length) % views.length;
+    const view = views[focusedViewIndex];
+    switchView(view.name);
+    console.log(`Switched to: ${view.label}`);
 }
 
 // Keyboard shortcuts
@@ -1498,18 +1498,19 @@ document.addEventListener('DOMContentLoaded', async () => {
                 activeElement.tagName === 'SELECT'
             );
 
-            // If not in an input field, cycle panels
+            // If not in an input field, cycle views
             if (!isInInputField) {
                 e.preventDefault();
-                cyclePanel(e.shiftKey ? -1 : 1);
+                cycleView(e.shiftKey ? -1 : 1);
             }
         }
 
-        // Ctrl+1,2,3,4 to jump to specific panel
-        if ((e.ctrlKey || e.metaKey) && e.key >= '1' && e.key <= '4') {
+        // Ctrl+1,2,3 to jump to specific view
+        if ((e.ctrlKey || e.metaKey) && e.key >= '1' && e.key <= '3') {
             e.preventDefault();
-            focusedPanelIndex = parseInt(e.key) - 1;
-            highlightActivePanel();
+            focusedViewIndex = parseInt(e.key) - 1;
+            const view = views[focusedViewIndex];
+            switchView(view.name);
         }
 
         // Escape to focus chat input
