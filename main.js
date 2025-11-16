@@ -417,6 +417,69 @@ ipcMain.handle('system:run-command', async (event, command) => {
     }
 });
 
+// Streaming command execution for real-time output
+ipcMain.handle('system:run-command-streaming', async (event, command) => {
+    return new Promise((resolve) => {
+        const { spawn } = require('child_process');
+
+        // Spawn process with unbuffered output
+        const proc = spawn(command, {
+            cwd: workingDirectory,
+            env: { ...process.env, PYTHONUNBUFFERED: '1' },
+            shell: true
+        });
+
+        let stdoutData = '';
+        let stderrData = '';
+
+        // Stream stdout line by line
+        proc.stdout.on('data', (data) => {
+            const text = data.toString();
+            stdoutData += text;
+
+            // Send each line immediately to renderer
+            const lines = text.split('\n').filter(line => line.trim());
+            lines.forEach(line => {
+                event.sender.send('command-output', { type: 'stdout', line });
+            });
+        });
+
+        // Stream stderr line by line
+        proc.stderr.on('data', (data) => {
+            const text = data.toString();
+            stderrData += text;
+
+            // Send each line immediately to renderer
+            const lines = text.split('\n').filter(line => line.trim());
+            lines.forEach(line => {
+                event.sender.send('command-output', { type: 'stderr', line });
+            });
+        });
+
+        // Handle process completion
+        proc.on('close', (code) => {
+            // Send completion event
+            event.sender.send('command-complete', { code });
+
+            resolve({
+                success: code === 0,
+                result: { stdout: stdoutData, stderr: stderrData },
+                error: code !== 0 ? `Command exited with code ${code}` : null
+            });
+        });
+
+        // Handle errors
+        proc.on('error', (error) => {
+            event.sender.send('command-error', { error: error.message });
+
+            resolve({
+                success: false,
+                error: error.message
+            });
+        });
+    });
+});
+
 ipcMain.handle('graphbus:build', async (event, config) => {
     try {
         console.log('Building agents with config:', config);

@@ -916,27 +916,27 @@ async function checkForCompoundRequestContinuation() {
 
 // Execute shell command
 async function runShellCommand(command) {
+    // Use streaming for negotiation commands
+    if (command.includes('graphbus negotiate')) {
+        return runStreamingCommand(command);
+    }
+
     try {
         const result = await window.graphbus.runCommand(command);
 
         if (result.success) {
             const { stdout, stderr } = result.result;
 
-            // Check if this is a negotiation command
-            if (command.includes('graphbus negotiate') && stdout && stdout.trim()) {
-                parseAndDisplayNegotiation(stdout);
-            } else {
-                if (stdout && stdout.trim()) {
-                    addMessage(`✓ Output:\n${stdout}`, 'assistant');
-                }
+            if (stdout && stdout.trim()) {
+                addMessage(`✓ Output:\n${stdout}`, 'assistant');
+            }
 
-                if (stderr && stderr.trim()) {
-                    addMessage(`⚠️ Stderr:\n${stderr}`, 'system');
-                }
+            if (stderr && stderr.trim()) {
+                addMessage(`⚠️ Stderr:\n${stderr}`, 'system');
+            }
 
-                if (!stdout && !stderr) {
-                    addMessage('✓ Completed', 'system');
-                }
+            if (!stdout && !stderr) {
+                addMessage('✓ Completed', 'system');
             }
 
             const combinedOutput = [stdout, stderr].filter(x => x && x.trim()).join('\n');
@@ -984,6 +984,120 @@ async function runShellCommand(command) {
     } catch (error) {
         addMessage(`✗ Exception:\n${error.message}`, 'assistant');
         await window.graphbus.claudeAddSystemMessage(`Command error: ${error.message}`);
+    }
+}
+
+// Execute command with streaming output
+async function runStreamingCommand(command) {
+    let streamingMessageElement = null;
+    let fullOutput = '';
+    let currentRound = 0;
+    let currentPhase = '';
+
+    // Create initial message
+    const messagesContainer = document.getElementById('messages');
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'message assistant';
+    messageDiv.textContent = '🔄 Starting negotiation...\n';
+    messagesContainer.appendChild(messageDiv);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    streamingMessageElement = messageDiv;
+
+    // Set up event listeners
+    const outputHandler = (data) => {
+        const { type, line } = data;
+        fullOutput += line + '\n';
+
+        // Parse interesting lines for structured display
+        let displayLine = line;
+
+        if (line.includes('User intent:')) {
+            displayLine = `\n🎯 ${line}\n`;
+        } else if (line.match(/NEGOTIATION ROUND (\d+)\/(\d+)/)) {
+            const match = line.match(/NEGOTIATION ROUND (\d+)\/(\d+)/);
+            currentRound = match[1];
+            displayLine = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📊 ROUND ${match[1]}/${match[2]}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+            currentPhase = '';
+        } else if (line.includes('Proposing')) {
+            if (currentPhase !== 'proposing') {
+                displayLine = `\n💡 Phase 1: Proposal Generation\n  ${line}`;
+                currentPhase = 'proposing';
+            } else {
+                displayLine = `  ${line}`;
+            }
+        } else if (line.includes('evaluated') && (line.includes('accept') || line.includes('reject'))) {
+            if (currentPhase !== 'evaluating') {
+                displayLine = `\n📋 Phase 2: Peer Evaluation\n  ${line}`;
+                currentPhase = 'evaluating';
+            } else {
+                displayLine = `  ${line}`;
+            }
+        } else if (line.includes('Validating') || line.includes('Schema')) {
+            if (currentPhase !== 'validating') {
+                displayLine = `\n🔍 Phase 3: Schema Validation\n  ${line}`;
+                currentPhase = 'validating';
+            } else {
+                displayLine = `  ${line}`;
+            }
+        } else if (line.includes('Commit created')) {
+            if (currentPhase !== 'committing') {
+                displayLine = `\n✅ Phase 4: Consensus & Commit\n  ${line}`;
+                currentPhase = 'committing';
+            } else {
+                displayLine = `  ${line}`;
+            }
+        } else if (line.includes('Modified')) {
+            if (currentPhase !== 'modifying') {
+                displayLine = `\n📝 Phase 5: File Modifications\n  ${line}`;
+                currentPhase = 'modifying';
+            } else {
+                displayLine = `  ${line}`;
+            }
+        } else if (line.includes('ORCHESTRATION COMPLETE')) {
+            displayLine = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🎉 NEGOTIATION COMPLETE\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        } else if (line.includes('Warning:') || line.includes('Error:')) {
+            displayLine = `\n⚠️ ${line}`;
+        }
+
+        // Append to streaming message
+        if (streamingMessageElement) {
+            streamingMessageElement.textContent += displayLine + '\n';
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+    };
+
+    const completeHandler = async (data) => {
+        if (streamingMessageElement) {
+            streamingMessageElement.textContent += '\n✓ Command completed\n';
+        }
+
+        // Cleanup listeners
+        window.graphbus.onCommandOutput(() => {});
+        window.graphbus.onCommandComplete(() => {});
+        window.graphbus.onCommandError(() => {});
+
+        await window.graphbus.claudeAddSystemMessage(`Negotiation completed. Output: ${fullOutput}`);
+        setTimeout(() => checkForCompoundRequestContinuation(), 500);
+    };
+
+    const errorHandler = (data) => {
+        if (streamingMessageElement) {
+            streamingMessageElement.textContent += `\n✗ Error: ${data.error}\n`;
+        }
+    };
+
+    // Register handlers
+    window.graphbus.onCommandOutput(outputHandler);
+    window.graphbus.onCommandComplete(completeHandler);
+    window.graphbus.onCommandError(errorHandler);
+
+    // Start streaming command
+    try {
+        await window.graphbus.runCommandStreaming(command);
+    } catch (error) {
+        if (streamingMessageElement) {
+            streamingMessageElement.textContent += `\n✗ Exception: ${error.message}\n`;
+        }
     }
 }
 

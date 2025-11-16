@@ -34,6 +34,12 @@ contextBridge.exposeInMainWorld('graphbus', {
     setWorkingDirectory: (path) => ipcRenderer.invoke('system:set-cwd', path),
     browseDirectory: () => ipcRenderer.invoke('system:browse-directory'),
     runCommand: (command) => ipcRenderer.invoke('system:run-command', command),
+    runCommandStreaming: (command) => ipcRenderer.invoke('system:run-command-streaming', command),
+
+    // Event listeners for streaming command output
+    onCommandOutput: (callback) => ipcRenderer.on('command-output', (event, data) => callback(data)),
+    onCommandComplete: (callback) => ipcRenderer.on('command-complete', (event, data) => callback(data)),
+    onCommandError: (callback) => ipcRenderer.on('command-error', (event, data) => callback(data)),
 
     // Claude AI operations
     claudeInitialize: (apiKey, shouldSave = true) => ipcRenderer.invoke('claude:initialize', apiKey, shouldSave),
