@@ -1587,8 +1587,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Rehydrate complete state from .graphbus folder
 async function checkAndLoadExistingState() {
     try {
-        // Call the new rehydrate-state IPC handler
-        const result = await window.electronAPI.invoke('graphbus:rehydrate-state', workingDirectory);
+        // Call the new rehydrate-state API
+        const result = await window.graphbus.rehydrateState(workingDirectory);
 
         if (!result.success) {
             console.log('No .graphbus directory found in', workingDirectory);

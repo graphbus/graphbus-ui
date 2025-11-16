@@ -15,6 +15,7 @@ contextBridge.exposeInMainWorld('graphbus', {
     getStats: () => ipcRenderer.invoke('graphbus:get-stats'),
     loadGraph: (artifactsDir) => ipcRenderer.invoke('graphbus:load-graph', artifactsDir),
     listAgents: () => ipcRenderer.invoke('graphbus:list-agents'),
+    rehydrateState: (workingDirectory) => ipcRenderer.invoke('graphbus:rehydrate-state', workingDirectory),
 
     // Working directory operations
     getWorkingDirectory: () => ipcRenderer.invoke('system:get-cwd'),
