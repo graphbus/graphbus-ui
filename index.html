@@ -41,6 +41,9 @@
                 <button class="tab-btn active" data-view="graph" onclick="switchView('graph')">
                     🕸️ Agent Graph
                 </button>
+                <button class="tab-btn" data-view="conversation" onclick="switchView('conversation')">
+                    💬 Conversation
+                </button>
                 <button class="tab-btn" data-view="state" onclick="switchView('state')">
                     🔄 System State
                 </button>
@@ -84,6 +87,49 @@
                             <div style="border-top: 1px solid #333; padding-top: 8px; margin-top: 8px;">
                                 <div style="margin-bottom: 5px;"><span style="color: #667eea;">●</span> Agent</div>
                                 <div><span style="color: #f59e0b;">→</span> Depends On</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Conversation View -->
+                <div id="conversationView" class="view">
+                    <div class="view-content conversation-view-content">
+                        <div class="view-header">
+                            <h2>💬 Conversation</h2>
+                        </div>
+                        <div class="conversation-messages-view" id="messages"></div>
+
+                        <!-- Conversation Input (Only in this tab) -->
+                        <div class="conversation-input-section">
+                            <div class="stats-bar">
+                                <div class="stat-item working-dir-item">
+                                    <span class="stat-label">📁 Working Dir:</span>
+                                    <span class="stat-value working-dir-path" id="workingDirPath" title="Click to change">/</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">📊 Status:</span>
+                                    <span class="stat-value" id="workflowStatus">Getting Started</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">→ Next:</span>
+                                    <span class="stat-value" id="nextAction">Create agents</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Agents:</span>
+                                    <span class="stat-value" id="nodesCount">0</span>
+                                </div>
+                            </div>
+                            <div class="chat-input-container">
+                                <input
+                                    type="text"
+                                    id="chatInput"
+                                    placeholder="Type here to chat... (I'll guide you through everything)"
+                                    autofocus
+                                />
+                                <button onclick="sendCommand()" id="sendBtn">
+                                    <span>Send</span>
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -181,50 +227,6 @@
                             </div>
                         </div>
                     </div>
-                </div>
-            </div>
-
-            <!-- Conversation Panel (Always at Bottom) -->
-            <div class="conversation-panel">
-                <div class="conversation-header">
-                    <h3>💬 Conversation</h3>
-                </div>
-                <div class="conversation-messages" id="messages"></div>
-            </div>
-
-            <!-- Bottom: Conversational Input Bar -->
-            <div class="conversation-bar">
-                <div class="stats-bar">
-                    <div class="stat-item working-dir-item">
-                        <span class="stat-label">📁 Working Dir:</span>
-                        <span class="stat-value working-dir-path" id="workingDirPath" title="Click to change">/</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">📊 Status:</span>
-                        <span class="stat-value" id="workflowStatus">Getting Started</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">→ Next:</span>
-                        <span class="stat-value" id="nextAction">Create agents</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">Agents:</span>
-                        <span class="stat-value" id="nodesCount">0</span>
-                    </div>
-                    <div class="stat-item" style="margin-left: auto; opacity: 0.6;">
-                        <span class="stat-label" style="font-size: 11px;">⌨️ Tab to cycle views • Esc to focus chat</span>
-                    </div>
-                </div>
-                <div class="chat-input-container">
-                    <input
-                        type="text"
-                        id="chatInput"
-                        placeholder="Type here to chat... (I'll guide you through everything)"
-                        autofocus
-                    />
-                    <button onclick="sendCommand()" id="sendBtn">
-                        <span>Send</span>
-                    </button>
                 </div>
             </div>
         </div>

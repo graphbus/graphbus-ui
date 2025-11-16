@@ -1099,9 +1099,33 @@ function displayAgents(nodes, edges = []) {
     const visEdges = edges.map(edge => ({
         from: edge.source,
         to: edge.target,
-        arrows: 'to',
-        color: { color: '#f59e0b', highlight: '#fbbf24' },
-        smooth: { type: 'cubicBezier' }
+        arrows: {
+            to: {
+                enabled: true,
+                scaleFactor: 1,
+                type: 'arrow'
+            }
+        },
+        color: {
+            color: '#f59e0b',
+            highlight: '#fbbf24',
+            hover: '#fbbf24',
+            opacity: 1.0
+        },
+        width: 3,
+        label: edge.type || 'depends_on',
+        font: {
+            color: '#888',
+            size: 11,
+            align: 'middle',
+            background: 'rgba(0, 0, 0, 0.6)',
+            strokeWidth: 0
+        },
+        smooth: {
+            enabled: true,
+            type: 'cubicBezier',
+            roundness: 0.5
+        }
     }));
 
     // Create network
@@ -1465,6 +1489,7 @@ async function changeWorkingDirectory() {
 let focusedViewIndex = 0;
 const views = [
     { name: 'graph', label: 'Agent Graph' },
+    { name: 'conversation', label: 'Conversation' },
     { name: 'state', label: 'System State' },
     { name: 'settings', label: 'Settings' }
 ];
@@ -1505,8 +1530,8 @@ document.addEventListener('DOMContentLoaded', async () => {
             }
         }
 
-        // Ctrl+1,2,3 to jump to specific view
-        if ((e.ctrlKey || e.metaKey) && e.key >= '1' && e.key <= '3') {
+        // Ctrl+1,2,3,4 to jump to specific view
+        if ((e.ctrlKey || e.metaKey) && e.key >= '1' && e.key <= '4') {
             e.preventDefault();
             focusedViewIndex = parseInt(e.key) - 1;
             const view = views[focusedViewIndex];
