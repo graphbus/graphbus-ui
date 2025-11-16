@@ -1564,23 +1564,30 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize working directory first
     await initializeWorkingDirectory();
 
-    // Try to rehydrate complete state from .graphbus folder
-    // This includes: graph, conversation history, build status, negotiations, etc.
-    const hasExistingState = await checkAndLoadExistingState();
-
-    // Start polling on load
-    startStatusPolling();
-
-    // Initialize Claude or start orchestration
+    // Initialize Claude first (needed for project creation)
     const claudeReady = await initializeClaude();
 
-    if (claudeReady) {
-        // Claude is ready, start orchestration
-        setTimeout(() => orchestrateWorkflow(), 500);
+    // Check if there's an existing project or show welcome screen
+    const hasExistingProject = await checkForExistingProject();
+
+    if (hasExistingProject) {
+        // Has existing project - rehydrate state
+        await checkAndLoadExistingState();
+
+        // Start polling on load
+        startStatusPolling();
+
+        if (claudeReady) {
+            // Claude is ready, start orchestration
+            setTimeout(() => orchestrateWorkflow(), 500);
+        } else {
+            // Claude not ready - show setup message
+            workflowState.phase = 'initial';
+            setTimeout(() => orchestrateWorkflow(), 500);
+        }
     } else {
-        // Claude not ready - show setup message
-        workflowState.phase = 'initial';
-        setTimeout(() => orchestrateWorkflow(), 500);
+        // No existing project - welcome screen is already shown by checkForExistingProject()
+        // User will choose to create new or open existing project
     }
 });
 
@@ -1677,6 +1684,178 @@ async function checkAndLoadExistingState() {
         console.log('No existing GraphBus state found:', error.message);
         return false;
     }
+}
+
+// Welcome Screen and Project Initialization
+let selectedTemplate = 'blank';
+let newProjectDirectory = null;
+
+function showWelcomeScreen() {
+    document.getElementById('welcomeScreen').style.display = 'flex';
+    document.querySelector('.main-layout').style.display = 'none';
+}
+
+function hideWelcomeScreen() {
+    document.getElementById('welcomeScreen').style.display = 'none';
+    document.querySelector('.main-layout').style.display = 'flex';
+}
+
+function showNewProjectForm() {
+    document.getElementById('newProjectForm').style.display = 'flex';
+}
+
+function closeNewProjectForm() {
+    document.getElementById('newProjectForm').style.display = 'none';
+    // Reset form
+    document.getElementById('newProjectPath').value = '';
+    document.getElementById('projectDescription').value = '';
+    document.getElementById('projectPathError').style.display = 'none';
+    newProjectDirectory = null;
+    selectTemplate('blank');
+}
+
+async function browseNewProjectDirectory() {
+    try {
+        const result = await window.graphbus.browseDirectory();
+
+        if (result.success && result.result) {
+            const selectedPath = result.result;
+
+            // Check if .graphbus already exists
+            const checkResult = await window.graphbus.runCommand(`test -d "${selectedPath}/.graphbus" && echo "exists" || echo "missing"`);
+
+            if (checkResult.success && checkResult.result.stdout.includes('exists')) {
+                // .graphbus exists - cannot create new project here
+                document.getElementById('projectPathError').textContent = '❌ This directory already contains a GraphBus project. Please choose a different directory.';
+                document.getElementById('projectPathError').style.display = 'block';
+                document.getElementById('newProjectPath').value = '';
+                newProjectDirectory = null;
+            } else {
+                // Valid directory for new project
+                document.getElementById('newProjectPath').value = selectedPath;
+                document.getElementById('projectPathError').style.display = 'none';
+                newProjectDirectory = selectedPath;
+            }
+        }
+    } catch (error) {
+        console.error('Error browsing directory:', error);
+    }
+}
+
+function selectTemplate(templateName) {
+    selectedTemplate = templateName;
+
+    // Update UI
+    document.querySelectorAll('.template-card').forEach(card => {
+        card.classList.remove('selected');
+    });
+    document.querySelector(`[data-template="${templateName}"]`).classList.add('selected');
+}
+
+async function createNewProject() {
+    // Validate inputs
+    if (!newProjectDirectory) {
+        alert('Please select a project directory');
+        return;
+    }
+
+    const description = document.getElementById('projectDescription').value.trim();
+    if (!description) {
+        alert('Please provide a project description');
+        return;
+    }
+
+    // Close form
+    closeNewProjectForm();
+    hideWelcomeScreen();
+
+    // Switch to conversation view
+    switchView('conversation');
+
+    // Set working directory
+    await window.graphbus.setWorkingDirectory(newProjectDirectory);
+    workingDirectory = newProjectDirectory;
+    updateWorkingDirectoryDisplay();
+
+    // Add message about project creation
+    addMessage(`🚀 Creating new GraphBus project in ${newProjectDirectory}`, 'system');
+    addMessage(`📋 Project Description: ${description}`, 'system');
+    addMessage(`🎨 Template: ${selectedTemplate}`, 'system');
+
+    // Use Claude to create the project
+    if (workflowState.claudeInitialized) {
+        const prompt = `Create a new GraphBus project based on this description: "${description}". Use the "${selectedTemplate}" template approach. Generate appropriate agents, build the project, and explain what you created.`;
+
+        addMessage(prompt, 'user');
+
+        try {
+            const response = await window.graphbus.claudeChat(prompt, {
+                hasBuilt: false,
+                isRunning: false,
+                phase: 'initial',
+                workingDirectory: newProjectDirectory
+            });
+
+            if (response.success) {
+                const { message, action, params } = response.result;
+                if (message) addMessage(message, 'assistant');
+                if (action) await executeClaudeAction(action, params);
+            }
+        } catch (error) {
+            addMessage(`Error: ${error.message}`, 'system');
+        }
+    } else {
+        addMessage('⚠️ Claude not initialized. Please configure API key in Settings to use AI-powered project creation.', 'system');
+    }
+}
+
+async function openExistingProject() {
+    try {
+        const result = await window.graphbus.browseDirectory();
+
+        if (result.success && result.result) {
+            const selectedPath = result.result;
+
+            // Check if .graphbus exists
+            const checkResult = await window.graphbus.runCommand(`test -d "${selectedPath}/.graphbus" && echo "exists" || echo "missing"`);
+
+            if (!checkResult.success || !checkResult.result.stdout.includes('exists')) {
+                // No .graphbus - cannot open
+                alert('❌ This directory does not contain a GraphBus project (.graphbus folder not found). Please choose a directory with an existing project or create a new one.');
+                return;
+            }
+
+            // Valid existing project - load it
+            hideWelcomeScreen();
+
+            // Set working directory
+            await window.graphbus.setWorkingDirectory(selectedPath);
+            workingDirectory = selectedPath;
+            updateWorkingDirectoryDisplay();
+
+            // Rehydrate state
+            await checkAndLoadExistingState();
+
+            addMessage(`📂 Opened existing project: ${selectedPath}`, 'system');
+        }
+    } catch (error) {
+        console.error('Error opening project:', error);
+        alert(`Failed to open project: ${error.message}`);
+    }
+}
+
+// Check if we should show welcome screen on startup
+async function checkForExistingProject() {
+    const result = await window.graphbus.rehydrateState(workingDirectory);
+
+    if (!result.success || !result.result || !result.result.hasGraphbus) {
+        // No existing project - show welcome screen
+        showWelcomeScreen();
+        return false;
+    }
+
+    // Has existing project - load it
+    return true;
 }
 
 console.log('GraphBus UI Renderer loaded');

@@ -34,6 +34,99 @@
 </head>
 <body>
     <div class="app-container">
+        <!-- Welcome Screen (shown on first load) -->
+        <div id="welcomeScreen" class="welcome-screen" style="display: none;">
+            <div class="welcome-content">
+                <div class="welcome-header">
+                    <h1>🚀 Welcome to GraphBus UI</h1>
+                    <p>Agent orchestration and development platform</p>
+                </div>
+
+                <div class="project-actions">
+                    <div class="project-card" id="newProjectCard">
+                        <div class="card-icon">📝</div>
+                        <h2>Create New Project</h2>
+                        <p>Start a new GraphBus project with AI-powered agent generation</p>
+                        <button class="primary-btn" onclick="showNewProjectForm()">Create Project</button>
+                    </div>
+
+                    <div class="project-card" id="openProjectCard">
+                        <div class="card-icon">📂</div>
+                        <h2>Open Existing Project</h2>
+                        <p>Load an existing GraphBus project from a directory</p>
+                        <button class="primary-btn" onclick="openExistingProject()">Open Project</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- New Project Form -->
+        <div id="newProjectForm" class="modal" style="display: none;">
+            <div class="modal-content large-modal">
+                <div class="modal-header">
+                    <h2>📝 Create New Project</h2>
+                    <button class="modal-close" onclick="closeNewProjectForm()">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <!-- Directory Selection -->
+                    <div class="form-section">
+                        <label>
+                            <h3>📁 Project Directory</h3>
+                            <p class="hint">Select an empty directory or one without existing .graphbus folder</p>
+                        </label>
+                        <div style="display: flex; gap: 12px; align-items: center;">
+                            <input type="text" id="newProjectPath" readonly placeholder="Click browse to select..." style="flex: 1;" />
+                            <button onclick="browseNewProjectDirectory()" class="settings-btn">Browse</button>
+                        </div>
+                        <p id="projectPathError" class="error-message" style="display: none;"></p>
+                    </div>
+
+                    <!-- Project Description -->
+                    <div class="form-section">
+                        <label>
+                            <h3>📋 Project Description</h3>
+                            <p class="hint">Describe what your agent system should do. Be specific about the functionality you need.</p>
+                        </label>
+                        <textarea id="projectDescription" rows="4" placeholder="Example: I want to build a chat application where agents handle greetings, process messages, and log all interactions to a file."></textarea>
+                    </div>
+
+                    <!-- Template Selection -->
+                    <div class="form-section">
+                        <label>
+                            <h3>🎨 Choose Template</h3>
+                            <p class="hint">Select a starting template or create from scratch</p>
+                        </label>
+                        <div class="template-grid">
+                            <div class="template-card" data-template="blank" onclick="selectTemplate('blank')">
+                                <div class="template-icon">📄</div>
+                                <h4>Blank</h4>
+                                <p>Start from scratch</p>
+                            </div>
+                            <div class="template-card" data-template="basic" onclick="selectTemplate('basic')">
+                                <div class="template-icon">⚡</div>
+                                <h4>Basic App</h4>
+                                <p>Simple 2-3 agent setup</p>
+                            </div>
+                            <div class="template-card" data-template="microservices" onclick="selectTemplate('microservices')">
+                                <div class="template-icon">🏗️</div>
+                                <h4>Microservices</h4>
+                                <p>Service-oriented architecture</p>
+                            </div>
+                            <div class="template-card" data-template="data-pipeline" onclick="selectTemplate('data-pipeline')">
+                                <div class="template-icon">🔄</div>
+                                <h4>Data Pipeline</h4>
+                                <p>ETL and data processing</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn-secondary" onclick="closeNewProjectForm()">Cancel</button>
+                    <button class="btn-primary" onclick="createNewProject()">🚀 Create Project</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Main Layout with Tabs -->
         <div class="main-layout">
             <!-- Tab Bar -->
