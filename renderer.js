@@ -1008,17 +1008,52 @@ async function runStreamingCommand(command) {
         const { type, line } = data;
         fullOutput += line + '\n';
 
-        // Parse interesting lines for structured display
-        let displayLine = line;
+        // Skip verbose log lines that clutter the output
+        if (line.includes('[Orchestrator]') ||
+            line.includes('[CodeWriter]') ||
+            line.includes('[Negotiation] Proposal prop_') ||
+            line.includes('[Negotiation] Agents evaluating') ||
+            line.includes('GraphBus Agent Negotiation') ||
+            line.includes('ℹ ') ||
+            line.includes('Safety: max_rounds') ||
+            line.includes('AGENT ORCHESTRATION') ||
+            line.includes('Activating agents') ||
+            line.includes('✓ Activated') ||
+            line.includes('agents activated') ||
+            line.includes('Running analysis phase') ||
+            line.includes('Analyzing ') ||
+            line.includes('Found ') ||
+            line.includes('potential improvements') ||
+            line.includes('Running proposal phase') ||
+            line.includes('Running reconciliation phase') ||
+            line.includes('No arbiter configured') ||
+            line.includes('Running negotiation round') ||
+            line.includes('commits created') ||
+            line.includes('Applying ') ||
+            line.includes('Reloading source code') ||
+            line.includes('Running refactoring validation') ||
+            line.includes('Saved graph to') ||
+            line.includes('Saved ') ||
+            line.includes('to /Users') ||
+            line.match(/^={60,}$/) ||
+            line.match(/^-{60,}$/) ||
+            line.trim() === '') {
+            return; // Skip these lines
+        }
 
+        let displayLine = null;
+
+        // Extract user intent
         if (line.includes('User intent:')) {
             displayLine = `\n┌─────────────────────────────────────────┐
 │  🎯 INTENT                              │
 └─────────────────────────────────────────┘
-  ${line}
+  ${line.replace(/.*User intent:\s*/, '')}
 `;
-        } else if (line.match(/NEGOTIATION ROUND (\d+)\/(\d+)/)) {
-            const match = line.match(/NEGOTIATION ROUND (\d+)\/(\d+)/);
+        }
+        // Extract round number
+        else if (line.match(/ROUND (\d+)\/(\d+)/)) {
+            const match = line.match(/ROUND (\d+)\/(\d+)/);
             currentRound = match[1];
             displayLine = `
 ═══════════════════════════════════════════
@@ -1026,79 +1061,94 @@ async function runStreamingCommand(command) {
 ═══════════════════════════════════════════
 `;
             currentPhase = '';
-        } else if (line.includes('Proposing')) {
+        }
+        // Extract proposals
+        else if (line.match(/(\w+): Proposing '(.+?)'\.\.\./)) {
+            const match = line.match(/(\w+): Proposing '(.+?)'\.\.\./);
             if (currentPhase !== 'proposing') {
                 displayLine = `
 ┌─────────────────────────────────────────┐
 │  💡 STEP 1: Proposal Generation         │
 └─────────────────────────────────────────┘
-  ${line}`;
+  🤖 ${match[1]}: ${match[2]}`;
                 currentPhase = 'proposing';
             } else {
-                displayLine = `  ${line}`;
+                displayLine = `  🤖 ${match[1]}: ${match[2]}`;
             }
-        } else if (line.includes('evaluated') && (line.includes('accept') || line.includes('reject'))) {
+        }
+        // Extract evaluations
+        else if (line.match(/\[Negotiation\] (\w+) evaluated (\w+): (accept|reject)/)) {
+            const match = line.match(/\[Negotiation\] (\w+) evaluated (\w+): (accept|reject)/);
             if (currentPhase !== 'evaluating') {
                 displayLine = `
         ↓
 ┌─────────────────────────────────────────┐
 │  📋 STEP 2: Peer Evaluation             │
 └─────────────────────────────────────────┘
-  ${line}`;
+  ${match[3] === 'accept' ? '✅' : '❌'} ${match[1]} → ${match[3].toUpperCase()}`;
                 currentPhase = 'evaluating';
             } else {
-                displayLine = `  ${line}`;
+                displayLine = `  ${match[3] === 'accept' ? '✅' : '❌'} ${match[1]} → ${match[3].toUpperCase()}`;
             }
-        } else if (line.includes('Validating') || line.includes('Schema')) {
-            if (currentPhase !== 'validating') {
-                displayLine = `
-        ↓
-┌─────────────────────────────────────────┐
-│  🔍 STEP 3: Schema Validation           │
-└─────────────────────────────────────────┘
-  ${line}`;
-                currentPhase = 'validating';
-            } else {
-                displayLine = `  ${line}`;
-            }
-        } else if (line.includes('Commit created')) {
+        }
+        // Extract commits
+        else if (line.match(/✓ Commit created for (\w+) \((\d+) accepts, (\d+) rejects\)/)) {
+            const match = line.match(/✓ Commit created for (\w+) \((\d+) accepts, (\d+) rejects\)/);
             if (currentPhase !== 'committing') {
                 displayLine = `
         ↓
 ┌─────────────────────────────────────────┐
-│  ✅ STEP 4: Consensus & Commit          │
+│  ✅ STEP 3: Consensus & Commit          │
 └─────────────────────────────────────────┘
-  ${line}`;
+  Commit: ${match[2]} accepts, ${match[3]} rejects`;
                 currentPhase = 'committing';
             } else {
-                displayLine = `  ${line}`;
+                displayLine = `  Commit: ${match[2]} accepts, ${match[3]} rejects`;
             }
-        } else if (line.includes('Modified')) {
-            if (currentPhase !== 'modifying') {
+        }
+        // Extract rejections
+        else if (line.includes('✗ REJECTED') || line.includes('✗ Cannot create commit')) {
+            displayLine = `  ${line}`;
+        }
+        // Extract file modifications
+        else if (line.match(/\[CodeWriter\] Modified (\d+) files?/)) {
+            const match = line.match(/\[CodeWriter\] Modified (\d+) files?/);
+            if (parseInt(match[1]) > 0) {
                 displayLine = `
         ↓
 ┌─────────────────────────────────────────┐
-│  📝 STEP 5: File Modifications          │
+│  📝 STEP 4: File Modifications          │
 └─────────────────────────────────────────┘
-  ${line}`;
+  Modified ${match[1]} file(s)`;
                 currentPhase = 'modifying';
-            } else {
-                displayLine = `  ${line}`;
             }
-        } else if (line.includes('ORCHESTRATION COMPLETE')) {
-            displayLine = `
+        }
+        // Extract completion
+        else if (line.includes('NEGOTIATION COMPLETE') || line.includes('Total rounds:')) {
+            if (!currentPhase.includes('complete')) {
+                displayLine = `
         ↓
 ╔═════════════════════════════════════════╗
 ║     🎉 NEGOTIATION COMPLETE             ║
 ╚═════════════════════════════════════════╝
 `;
-        } else if (line.includes('Warning:') || line.includes('Error:')) {
-            displayLine = `
-⚠️  ${line}`;
+                currentPhase = 'complete';
+            }
+        }
+        // Extract summary stats
+        else if (line.match(/Total (rounds|commits|proposals):/)) {
+            displayLine = `  ${line}`;
+        }
+        else if (line.match(/Files modified:/)) {
+            displayLine = `  ${line}`;
+        }
+        // Extract warnings/errors
+        else if (line.includes('⚠️') || line.includes('Warning:') || line.includes('Error:')) {
+            displayLine = `\n⚠️  ${line.replace('⚠️', '').trim()}`;
         }
 
-        // Append to streaming message
-        if (streamingMessageElement) {
+        // Only append if we have content to display
+        if (displayLine && streamingMessageElement) {
             streamingMessageElement.textContent += displayLine + '\n';
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
