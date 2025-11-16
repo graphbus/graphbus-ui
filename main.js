@@ -292,9 +292,9 @@ ipcMain.handle('graphbus:load-graph', async (event, artifactsDir) => {
         }));
 
         const edges = graphData.edges.map(edge => ({
-            source: edge.source,
-            target: edge.target,
-            type: edge.data?.type || 'depends_on'
+            source: edge.src,  // graph.json uses 'src', not 'source'
+            target: edge.dst,  // graph.json uses 'dst', not 'target'
+            type: edge.data?.edge_type || 'depends_on'
         }));
 
         return {
@@ -345,9 +345,9 @@ ipcMain.handle('graphbus:rehydrate-state', async (event, workingDirectory) => {
                     subscriptions: node.data.subscriptions || []
                 })),
                 edges: graphData.edges.map(edge => ({
-                    source: edge.source,
-                    target: edge.target,
-                    type: edge.data?.type || 'depends_on'
+                    source: edge.src,  // graph.json uses 'src', not 'source'
+                    target: edge.dst,  // graph.json uses 'dst', not 'target'
+                    type: edge.data?.edge_type || 'depends_on'
                 }))
             };
         }

@@ -1069,6 +1069,14 @@ function displayAgents(nodes, edges = []) {
         return;
     }
 
+    // Debug: Log what we're receiving
+    console.log('displayAgents called with:', {
+        nodeCount: nodes.length,
+        edgeCount: edges.length,
+        nodes: nodes.map(n => n.name),
+        edges: edges
+    });
+
     // Update agent counter in stats bar
     document.getElementById('nodesCount').textContent = nodes.length;
 
@@ -1128,9 +1136,14 @@ function displayAgents(nodes, edges = []) {
         }
     }));
 
+    // Debug: Log vis.js formatted edges
+    console.log('vis.js edges:', visEdges);
+
     // Create network
     const container = document.getElementById('graphCanvas');
     const data = { nodes: visNodes, edges: visEdges };
+
+    console.log('Creating vis.js network with data:', data);
     const options = {
         nodes: {
             borderWidth: 2,
@@ -1611,10 +1624,19 @@ async function checkAndLoadExistingState() {
             workflowState.phase = 'built';
             currentArtifactsDir = `${workingDirectory}/.graphbus`;
 
+            console.log('Rehydrating graph with:', {
+                nodeCount: state.graph.nodes.length,
+                edgeCount: (state.graph.edges || []).length,
+                edges: state.graph.edges
+            });
+
             // Display the graph with dependencies
             displayAgents(state.graph.nodes, state.graph.edges || []);
 
             addMessage(`🔄 Rehydrated GraphBus project with ${state.graph.nodes.length} agent(s)`, 'system');
+            if (state.graph.edges && state.graph.edges.length > 0) {
+                addMessage(`🔗 Loaded ${state.graph.edges.length} dependency edge(s)`, 'system');
+            }
         }
 
         // 2. Restore conversation history
