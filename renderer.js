@@ -922,16 +922,21 @@ async function runShellCommand(command) {
         if (result.success) {
             const { stdout, stderr } = result.result;
 
-            if (stdout && stdout.trim()) {
-                addMessage(`✓ Output:\n${stdout}`, 'assistant');
-            }
+            // Check if this is a negotiation command
+            if (command.includes('graphbus negotiate') && stdout && stdout.trim()) {
+                parseAndDisplayNegotiation(stdout);
+            } else {
+                if (stdout && stdout.trim()) {
+                    addMessage(`✓ Output:\n${stdout}`, 'assistant');
+                }
 
-            if (stderr && stderr.trim()) {
-                addMessage(`⚠️ Stderr:\n${stderr}`, 'system');
-            }
+                if (stderr && stderr.trim()) {
+                    addMessage(`⚠️ Stderr:\n${stderr}`, 'system');
+                }
 
-            if (!stdout && !stderr) {
-                addMessage('✓ Completed', 'system');
+                if (!stdout && !stderr) {
+                    addMessage('✓ Completed', 'system');
+                }
             }
 
             const combinedOutput = [stdout, stderr].filter(x => x && x.trim()).join('\n');
@@ -980,6 +985,131 @@ async function runShellCommand(command) {
         addMessage(`✗ Exception:\n${error.message}`, 'assistant');
         await window.graphbus.claudeAddSystemMessage(`Command error: ${error.message}`);
     }
+}
+
+// Parse and display negotiation output as individual messages
+function parseAndDisplayNegotiation(output) {
+    const lines = output.split('\n');
+    let totalRounds = 0;
+    let totalCommits = 0;
+    let filesModified = 0;
+
+    // Extract header info
+    const intentMatch = output.match(/User intent: (.+)/);
+    const userIntent = intentMatch ? intentMatch[1] : null;
+
+    if (userIntent) {
+        addMessage(`🎯 Negotiation Intent: ${userIntent}`, 'system');
+    }
+
+    // Parse round headers
+    const roundMatches = [...output.matchAll(/NEGOTIATION ROUND (\d+)\/(\d+)/g)];
+    if (roundMatches.length > 0) {
+        totalRounds = parseInt(roundMatches[roundMatches.length - 1][2]);
+    }
+
+    // Parse agent proposals
+    const proposalMatches = [...output.matchAll(/(\w+): Proposing '(.+?)'\.\.\./g)];
+    const proposalsByRound = {};
+
+    for (const match of proposalMatches) {
+        const [_, agent, proposal] = match;
+        const roundNum = output.substring(0, match.index).match(/NEGOTIATION ROUND (\d+)/g);
+        const round = roundNum ? parseInt(roundNum[roundNum.length - 1].match(/\d+/)[0]) : 1;
+
+        if (!proposalsByRound[round]) {
+            proposalsByRound[round] = [];
+        }
+        proposalsByRound[round].push({ agent, proposal });
+    }
+
+    // Display by round
+    for (let round = 1; round <= totalRounds; round++) {
+        addMessage(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📊 ROUND ${round}/${totalRounds}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'system');
+
+        // Show proposals for this round
+        const proposals = proposalsByRound[round] || [];
+        if (proposals.length > 0) {
+            addMessage(`💡 Proposals (${proposals.length}):`, 'assistant');
+            proposals.forEach(({ agent, proposal }) => {
+                addMessage(`  • ${agent}: ${proposal}`, 'assistant');
+            });
+        }
+
+        // Check for evaluations in this round section
+        const roundSection = getRoundSection(output, round);
+        if (roundSection) {
+            const acceptMatches = [...roundSection.matchAll(/(\w+) evaluated \w+: accept/g)];
+            const rejectMatches = [...roundSection.matchAll(/(\w+) evaluated \w+: reject/g)];
+
+            if (acceptMatches.length > 0 || rejectMatches.length > 0) {
+                addMessage(`\n📋 Evaluations:`, 'assistant');
+                if (acceptMatches.length > 0) {
+                    addMessage(`  ✓ ${acceptMatches.length} acceptance(s)`, 'assistant');
+                }
+                if (rejectMatches.length > 0) {
+                    addMessage(`  ✗ ${rejectMatches.length} rejection(s)`, 'assistant');
+                }
+            }
+
+            // Check for commits
+            const commitMatches = [...roundSection.matchAll(/✓ Commit created for (\w+) \((\d+) accepts, (\d+) rejects\)/g)];
+            if (commitMatches.length > 0) {
+                addMessage(`\n✅ Consensus Reached:`, 'assistant');
+                commitMatches.forEach(match => {
+                    const [_, proposalId, accepts, rejects] = match;
+                    addMessage(`  • Commit created (${accepts} accepts, ${rejects} rejects)`, 'assistant');
+                    totalCommits++;
+                });
+            }
+
+            // Check for modified files
+            const fileMatches = [...roundSection.matchAll(/✓ Modified (.+)/g)];
+            if (fileMatches.length > 0) {
+                addMessage(`\n📝 Files Modified:`, 'assistant');
+                const uniqueFiles = new Set(fileMatches.map(m => m[1].split('\n')[0]));
+                uniqueFiles.forEach(file => {
+                    addMessage(`  • ${file}`, 'assistant');
+                    filesModified++;
+                });
+            }
+        }
+    }
+
+    // Final summary
+    const summaryMatch = output.match(/ORCHESTRATION COMPLETE[\s\S]*?Total rounds: (\d+)[\s\S]*?Total commits: (\d+)[\s\S]*?Files modified: (\d+)/);
+    if (summaryMatch) {
+        const [_, rounds, commits, files] = summaryMatch;
+        addMessage(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🎉 NEGOTIATION COMPLETE\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'system');
+        addMessage(`📊 Summary:\n  • Rounds: ${rounds}\n  • Commits: ${commits}\n  • Files Modified: ${files}`, 'assistant');
+    } else if (totalCommits > 0) {
+        addMessage(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🎉 NEGOTIATION COMPLETE\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'system');
+        addMessage(`📊 Summary:\n  • Rounds: ${totalRounds}\n  • Commits: ${totalCommits}\n  • Files Modified: ${filesModified}`, 'assistant');
+    }
+
+    // Show any warnings or errors
+    const warningMatches = [...output.matchAll(/Warning: (.+)/g)];
+    if (warningMatches.length > 0) {
+        addMessage(`\n⚠️ Warnings (${warningMatches.length}):`, 'system');
+        warningMatches.slice(0, 3).forEach(match => {
+            addMessage(`  • ${match[1]}`, 'system');
+        });
+        if (warningMatches.length > 3) {
+            addMessage(`  • ...and ${warningMatches.length - 3} more`, 'system');
+        }
+    }
+}
+
+// Helper to extract a specific round's section from output
+function getRoundSection(output, roundNum) {
+    const roundStart = output.indexOf(`NEGOTIATION ROUND ${roundNum}/`);
+    if (roundStart === -1) return null;
+
+    const nextRound = output.indexOf(`NEGOTIATION ROUND ${roundNum + 1}/`, roundStart + 1);
+    const orchestrationComplete = output.indexOf('ORCHESTRATION COMPLETE', roundStart);
+
+    const endPos = nextRound !== -1 ? nextRound : (orchestrationComplete !== -1 ? orchestrationComplete : output.length);
+    return output.substring(roundStart, endPos);
 }
 
 // GraphBus operations (legacy - kept for backward compatibility)
