@@ -1,6 +1,18 @@
 // preload.js - Secure bridge between renderer and main process
 const { contextBridge, ipcRenderer } = require('electron');
 
+// Expose menu event listener
+contextBridge.exposeInMainWorld('menu', {
+    onNewProject: (callback) => ipcRenderer.on('menu:new-project', callback),
+    onOpenProject: (callback) => ipcRenderer.on('menu:open-project', callback),
+    onChangeDirectory: (callback) => ipcRenderer.on('menu:change-directory', callback),
+    onSwitchView: (callback) => ipcRenderer.on('menu:switch-view', (event, view) => callback(view)),
+    onBuildAgents: (callback) => ipcRenderer.on('menu:build-agents', callback),
+    onNegotiate: (callback) => ipcRenderer.on('menu:negotiate', callback),
+    onStartRuntime: (callback) => ipcRenderer.on('menu:start-runtime', callback),
+    onStopRuntime: (callback) => ipcRenderer.on('menu:stop-runtime', callback)
+});
+
 // Expose protected methods to renderer
 contextBridge.exposeInMainWorld('graphbus', {
     // Python execution

@@ -1,5 +1,5 @@
 // main.js - Electron main process
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -104,6 +104,215 @@ function deleteApiKey() {
     }
 }
 
+function createApplicationMenu() {
+    const isMac = process.platform === 'darwin';
+
+    const template = [
+        // App menu (macOS only)
+        ...(isMac ? [{
+            label: app.name,
+            submenu: [
+                { role: 'about' },
+                { type: 'separator' },
+                { role: 'services' },
+                { type: 'separator' },
+                { role: 'hide' },
+                { role: 'hideOthers' },
+                { role: 'unhide' },
+                { type: 'separator' },
+                { role: 'quit' }
+            ]
+        }] : []),
+
+        // File menu
+        {
+            label: 'File',
+            submenu: [
+                {
+                    label: 'New Project...',
+                    accelerator: 'CmdOrCtrl+N',
+                    click: () => {
+                        mainWindow.webContents.send('menu:new-project');
+                    }
+                },
+                {
+                    label: 'Open Project...',
+                    accelerator: 'CmdOrCtrl+O',
+                    click: () => {
+                        mainWindow.webContents.send('menu:open-project');
+                    }
+                },
+                { type: 'separator' },
+                {
+                    label: 'Change Working Directory...',
+                    accelerator: 'CmdOrCtrl+Shift+O',
+                    click: () => {
+                        mainWindow.webContents.send('menu:change-directory');
+                    }
+                },
+                { type: 'separator' },
+                isMac ? { role: 'close' } : { role: 'quit' }
+            ]
+        },
+
+        // Edit menu
+        {
+            label: 'Edit',
+            submenu: [
+                { role: 'undo' },
+                { role: 'redo' },
+                { type: 'separator' },
+                { role: 'cut' },
+                { role: 'copy' },
+                { role: 'paste' },
+                ...(isMac ? [
+                    { role: 'pasteAndMatchStyle' },
+                    { role: 'delete' },
+                    { role: 'selectAll' },
+                ] : [
+                    { role: 'delete' },
+                    { type: 'separator' },
+                    { role: 'selectAll' }
+                ])
+            ]
+        },
+
+        // View menu
+        {
+            label: 'View',
+            submenu: [
+                {
+                    label: 'Agent Graph',
+                    accelerator: 'CmdOrCtrl+1',
+                    click: () => {
+                        mainWindow.webContents.send('menu:switch-view', 'graph');
+                    }
+                },
+                {
+                    label: 'Conversation',
+                    accelerator: 'CmdOrCtrl+2',
+                    click: () => {
+                        mainWindow.webContents.send('menu:switch-view', 'conversation');
+                    }
+                },
+                {
+                    label: 'System State',
+                    accelerator: 'CmdOrCtrl+3',
+                    click: () => {
+                        mainWindow.webContents.send('menu:switch-view', 'state');
+                    }
+                },
+                {
+                    label: 'Settings',
+                    accelerator: 'CmdOrCtrl+4',
+                    click: () => {
+                        mainWindow.webContents.send('menu:switch-view', 'settings');
+                    }
+                },
+                { type: 'separator' },
+                { role: 'reload' },
+                { role: 'forceReload' },
+                { role: 'toggleDevTools' },
+                { type: 'separator' },
+                { role: 'resetZoom' },
+                { role: 'zoomIn' },
+                { role: 'zoomOut' },
+                { type: 'separator' },
+                { role: 'togglefullscreen' }
+            ]
+        },
+
+        // GraphBus menu
+        {
+            label: 'GraphBus',
+            submenu: [
+                {
+                    label: 'Build Agents',
+                    accelerator: 'CmdOrCtrl+B',
+                    click: () => {
+                        mainWindow.webContents.send('menu:build-agents');
+                    }
+                },
+                {
+                    label: 'Run Negotiation...',
+                    accelerator: 'CmdOrCtrl+Shift+N',
+                    click: () => {
+                        mainWindow.webContents.send('menu:negotiate');
+                    }
+                },
+                { type: 'separator' },
+                {
+                    label: 'Start Runtime',
+                    accelerator: 'CmdOrCtrl+R',
+                    click: () => {
+                        mainWindow.webContents.send('menu:start-runtime');
+                    }
+                },
+                {
+                    label: 'Stop Runtime',
+                    accelerator: 'CmdOrCtrl+Shift+R',
+                    click: () => {
+                        mainWindow.webContents.send('menu:stop-runtime');
+                    }
+                }
+            ]
+        },
+
+        // Window menu
+        {
+            label: 'Window',
+            submenu: [
+                { role: 'minimize' },
+                { role: 'zoom' },
+                ...(isMac ? [
+                    { type: 'separator' },
+                    { role: 'front' },
+                    { type: 'separator' },
+                    { role: 'window' }
+                ] : [
+                    { role: 'close' }
+                ])
+            ]
+        },
+
+        // Help menu
+        {
+            role: 'help',
+            submenu: [
+                {
+                    label: 'GraphBus Documentation',
+                    click: async () => {
+                        const { shell } = require('electron');
+                        await shell.openExternal('https://github.com/graphbus/graphbus-core');
+                    }
+                },
+                {
+                    label: 'Report Issue',
+                    click: async () => {
+                        const { shell } = require('electron');
+                        await shell.openExternal('https://github.com/graphbus/graphbus-ui/issues');
+                    }
+                },
+                { type: 'separator' },
+                {
+                    label: 'About GraphBus UI',
+                    click: () => {
+                        dialog.showMessageBox(mainWindow, {
+                            type: 'info',
+                            title: 'About GraphBus UI',
+                            message: 'GraphBus UI',
+                            detail: `Version: 1.0.0\n\nAgent orchestration and development platform\n\n© 2024 GraphBus`
+                        });
+                    }
+                }
+            ]
+        }
+    ];
+
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
+}
+
 function createWindow() {
     mainWindow = new BrowserWindow({
         width: 1400,
@@ -118,6 +327,9 @@ function createWindow() {
             preload: path.join(__dirname, 'preload.js')
         }
     });
+
+    // Create application menu
+    createApplicationMenu();
 
     mainWindow.loadFile('index.html');
 

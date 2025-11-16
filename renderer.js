@@ -1732,6 +1732,56 @@ document.addEventListener('DOMContentLoaded', async () => {
         // No existing project - welcome screen is already shown by checkForExistingProject()
         // User will choose to create new or open existing project
     }
+
+    // Set up menu event listeners
+    window.menu.onNewProject(() => {
+        showNewProjectForm();
+    });
+
+    window.menu.onOpenProject(() => {
+        openExistingProject();
+    });
+
+    window.menu.onChangeDirectory(() => {
+        changeWorkingDirectory();
+    });
+
+    window.menu.onSwitchView((view) => {
+        switchView(view);
+    });
+
+    window.menu.onBuildAgents(() => {
+        if (workflowState.claudeInitialized) {
+            sendCommand('build the agents');
+        } else {
+            addMessage('⚠️ Please configure Claude API key in Settings first', 'system');
+            switchView('settings');
+        }
+    });
+
+    window.menu.onNegotiate(() => {
+        if (workflowState.hasBuilt) {
+            switchView('conversation');
+            const chatInput = document.getElementById('chatInput');
+            chatInput.value = 'negotiate the agents with intent: ';
+            chatInput.focus();
+            chatInput.setSelectionRange(chatInput.value.length, chatInput.value.length);
+        } else {
+            addMessage('⚠️ Please build agents first before negotiating', 'system');
+        }
+    });
+
+    window.menu.onStartRuntime(() => {
+        if (workflowState.hasBuilt) {
+            startRuntime();
+        } else {
+            addMessage('⚠️ Please build agents first', 'system');
+        }
+    });
+
+    window.menu.onStopRuntime(() => {
+        stopRuntime();
+    });
 });
 
 // Rehydrate complete state from .graphbus folder
