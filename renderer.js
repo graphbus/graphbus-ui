@@ -1008,7 +1008,7 @@ function parseAndDisplayNegotiation(output) {
         totalRounds = parseInt(roundMatches[roundMatches.length - 1][2]);
     }
 
-    // Parse agent proposals
+    // Parse agent proposals with full context
     const proposalMatches = [...output.matchAll(/(\w+): Proposing '(.+?)'\.\.\./g)];
     const proposalsByRound = {};
 
@@ -1023,56 +1023,107 @@ function parseAndDisplayNegotiation(output) {
         proposalsByRound[round].push({ agent, proposal });
     }
 
-    // Display by round
+    // Display by round with much more granular detail
     for (let round = 1; round <= totalRounds; round++) {
         addMessage(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📊 ROUND ${round}/${totalRounds}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`, 'system');
 
-        // Show proposals for this round
+        const roundSection = getRoundSection(output, round);
+        if (!roundSection) continue;
+
+        // 1. Show proposals for this round
         const proposals = proposalsByRound[round] || [];
         if (proposals.length > 0) {
-            addMessage(`💡 Proposals (${proposals.length}):`, 'assistant');
+            addMessage(`\n💡 Phase 1: Proposal Generation (${proposals.length} proposals)`, 'system');
             proposals.forEach(({ agent, proposal }) => {
-                addMessage(`  • ${agent}: ${proposal}`, 'assistant');
+                addMessage(`  🤖 ${agent} proposes:\n     "${proposal}"`, 'assistant');
             });
         }
 
-        // Check for evaluations in this round section
-        const roundSection = getRoundSection(output, round);
-        if (roundSection) {
-            const acceptMatches = [...roundSection.matchAll(/(\w+) evaluated \w+: accept/g)];
-            const rejectMatches = [...roundSection.matchAll(/(\w+) evaluated \w+: reject/g)];
+        // 2. Show individual agent evaluations with details
+        const evaluationLines = roundSection.split('\n').filter(line =>
+            line.includes('evaluated') && (line.includes('accept') || line.includes('reject'))
+        );
 
-            if (acceptMatches.length > 0 || rejectMatches.length > 0) {
-                addMessage(`\n📋 Evaluations:`, 'assistant');
-                if (acceptMatches.length > 0) {
-                    addMessage(`  ✓ ${acceptMatches.length} acceptance(s)`, 'assistant');
+        if (evaluationLines.length > 0) {
+            addMessage(`\n📋 Phase 2: Peer Evaluation (${evaluationLines.length} evaluations)`, 'system');
+
+            evaluationLines.forEach(line => {
+                // Parse: "AgentA evaluated proposal_id: accept" or "AgentA evaluated proposal_id: reject"
+                const evalMatch = line.match(/(\w+) evaluated (\w+): (accept|reject)/);
+                if (evalMatch) {
+                    const [_, evaluator, proposalId, decision] = evalMatch;
+                    const emoji = decision === 'accept' ? '✅' : '❌';
+                    addMessage(`  ${emoji} ${evaluator} → ${proposalId}: ${decision.toUpperCase()}`, 'assistant');
                 }
-                if (rejectMatches.length > 0) {
-                    addMessage(`  ✗ ${rejectMatches.length} rejection(s)`, 'assistant');
+            });
+        }
+
+        // 3. Show validation checks
+        const validationLines = roundSection.split('\n').filter(line =>
+            line.includes('Validating') || line.includes('Schema') || line.includes('valid')
+        );
+
+        if (validationLines.length > 0) {
+            addMessage(`\n🔍 Phase 3: Schema Validation`, 'system');
+            validationLines.forEach(line => {
+                if (line.trim()) {
+                    addMessage(`  ${line.trim()}`, 'assistant');
                 }
-            }
+            });
+        }
 
-            // Check for commits
-            const commitMatches = [...roundSection.matchAll(/✓ Commit created for (\w+) \((\d+) accepts, (\d+) rejects\)/g)];
-            if (commitMatches.length > 0) {
-                addMessage(`\n✅ Consensus Reached:`, 'assistant');
-                commitMatches.forEach(match => {
-                    const [_, proposalId, accepts, rejects] = match;
-                    addMessage(`  • Commit created (${accepts} accepts, ${rejects} rejects)`, 'assistant');
-                    totalCommits++;
-                });
-            }
+        // 4. Show consensus decisions with detailed vote counts
+        const commitMatches = [...roundSection.matchAll(/✓ Commit created for (\w+) \((\d+) accepts, (\d+) rejects\)/g)];
+        if (commitMatches.length > 0) {
+            addMessage(`\n✅ Phase 4: Consensus & Commit`, 'system');
+            commitMatches.forEach(match => {
+                const [_, proposalId, accepts, rejects] = match;
+                const totalVotes = parseInt(accepts) + parseInt(rejects);
+                const acceptRate = totalVotes > 0 ? Math.round((parseInt(accepts) / totalVotes) * 100) : 0;
+                addMessage(`  🎯 Proposal ${proposalId}:`, 'assistant');
+                addMessage(`     Votes: ${accepts} accepts, ${rejects} rejects (${acceptRate}% approval)`, 'assistant');
+                addMessage(`     Status: ✓ COMMITTED`, 'assistant');
+                totalCommits++;
+            });
+        }
 
-            // Check for modified files
-            const fileMatches = [...roundSection.matchAll(/✓ Modified (.+)/g)];
-            if (fileMatches.length > 0) {
-                addMessage(`\n📝 Files Modified:`, 'assistant');
-                const uniqueFiles = new Set(fileMatches.map(m => m[1].split('\n')[0]));
-                uniqueFiles.forEach(file => {
-                    addMessage(`  • ${file}`, 'assistant');
-                    filesModified++;
-                });
-            }
+        // 5. Show file modifications with details
+        const fileMatches = [...roundSection.matchAll(/✓ Modified (.+)/g)];
+        if (fileMatches.length > 0) {
+            addMessage(`\n📝 Phase 5: File Modifications (${fileMatches.length} files)`, 'system');
+            const uniqueFiles = new Set(fileMatches.map(m => m[1].split('\n')[0]));
+            uniqueFiles.forEach(file => {
+                addMessage(`  📄 ${file}`, 'assistant');
+                filesModified++;
+            });
+        }
+
+        // 6. Show any errors or warnings for this round
+        const errorLines = roundSection.split('\n').filter(line =>
+            line.includes('Error:') || line.includes('Failed:') || line.includes('Warning:')
+        );
+
+        if (errorLines.length > 0) {
+            addMessage(`\n⚠️ Issues Detected:`, 'system');
+            errorLines.forEach(line => {
+                if (line.trim()) {
+                    addMessage(`  ${line.trim()}`, 'system');
+                }
+            });
+        }
+
+        // 7. Show any rejected proposals with reasons
+        const rejectLines = roundSection.split('\n').filter(line =>
+            line.includes('Rejected:') || (line.includes('reject') && line.includes('reason'))
+        );
+
+        if (rejectLines.length > 0) {
+            addMessage(`\n🚫 Rejected Proposals:`, 'system');
+            rejectLines.forEach(line => {
+                if (line.trim()) {
+                    addMessage(`  ${line.trim()}`, 'assistant');
+                }
+            });
         }
     }
 
