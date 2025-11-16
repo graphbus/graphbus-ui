@@ -1144,25 +1144,95 @@ function showAgentActions(agentName) {
     addMessage(message, 'system');
 }
 
-// Negotiate specific agent
-async function negotiateAgent(agentName) {
+// Store current negotiation agent
+let currentNegotiationAgent = null;
+
+// Show negotiation modal
+function showNegotiationModal(agentName) {
+    const node = currentGraphData.nodes.find(n => n.name === agentName);
+    if (!node) return;
+
+    currentNegotiationAgent = agentName;
+
+    // Populate agent info
+    document.getElementById('modalAgentName').textContent = agentName;
+    document.getElementById('modalAgentModule').textContent = node.module;
+    document.getElementById('modalAgentMethods').textContent = node.methods.join(', ') || 'None';
+
+    // Build dependency information
+    const dependencies = [];
+    const dependents = [];
+
+    currentGraphData.edges.forEach(edge => {
+        if (edge.source === agentName) {
+            dependencies.push(edge.target);
+        }
+        if (edge.target === agentName) {
+            dependents.push(edge.source);
+        }
+    });
+
+    // Populate dependencies
+    const depList = document.getElementById('modalDependencies');
+    depList.innerHTML = '';
+
+    if (dependencies.length === 0 && dependents.length === 0) {
+        depList.innerHTML = '<div style="color: #888; font-size: 13px;">No dependencies</div>';
+    } else {
+        if (dependencies.length > 0) {
+            dependencies.forEach(dep => {
+                const item = document.createElement('div');
+                item.className = 'dependency-item depends-on';
+                item.innerHTML = `<span style="color: #f59e0b;">↓</span> Depends on: <strong>${dep}</strong>`;
+                depList.appendChild(item);
+            });
+        }
+        if (dependents.length > 0) {
+            dependents.forEach(dep => {
+                const item = document.createElement('div');
+                item.className = 'dependency-item used-by';
+                item.innerHTML = `<span style="color: #10b981;">↑</span> Used by: <strong>${dep}</strong>`;
+                depList.appendChild(item);
+            });
+        }
+    }
+
+    // Clear previous intent
+    document.getElementById('negotiationIntent').value = '';
+    document.getElementById('negotiationRounds').value = 3;
+
+    // Show modal
+    document.getElementById('negotiationModal').style.display = 'flex';
+}
+
+// Close negotiation modal
+function closeNegotiationModal() {
+    document.getElementById('negotiationModal').style.display = 'none';
+    currentNegotiationAgent = null;
+}
+
+// Submit negotiation
+async function submitNegotiation() {
     if (!workflowState.claudeInitialized) {
         addMessage('⚠️ Claude not initialized. Please configure API key in Settings.', 'system');
+        closeNegotiationModal();
         return;
     }
 
-    // Prompt for user intent
-    const intent = prompt(`What should ${agentName} focus on improving?\n\nExamples:\n- "optimize performance"\n- "improve error handling"\n- "enhance schema design"\n- "add validation"`);
+    const intent = document.getElementById('negotiationIntent').value.trim();
+    const rounds = parseInt(document.getElementById('negotiationRounds').value) || 3;
 
-    if (!intent || intent.trim() === '') {
-        addMessage('Negotiation cancelled - no intent provided', 'system');
+    if (!intent) {
+        alert('Please provide an intent for the negotiation');
         return;
     }
 
-    addMessage(`Starting negotiation for ${agentName} with intent: "${intent}"`, 'assistant');
+    closeNegotiationModal();
+
+    addMessage(`Starting negotiation for ${currentNegotiationAgent} with intent: "${intent}" (${rounds} rounds)`, 'assistant');
 
     // Use Claude to run targeted negotiation with intent
-    const command = `Negotiate ${agentName} with the intent to "${intent}". Run: graphbus negotiate .graphbus --intent "${intent}" --rounds 3`;
+    const command = `Negotiate ${currentNegotiationAgent} with the intent to "${intent}". Run: graphbus negotiate .graphbus --intent "${intent}" --rounds ${rounds}`;
 
     try {
         const response = await window.graphbus.claudeChat(command, {
@@ -1180,6 +1250,16 @@ async function negotiateAgent(agentName) {
     } catch (error) {
         addMessage(`Error: ${error.message}`, 'assistant');
     }
+}
+
+// Negotiate specific agent (called from double-click)
+async function negotiateAgent(agentName) {
+    if (!workflowState.claudeInitialized) {
+        addMessage('⚠️ Claude not initialized. Please configure API key in Settings.', 'system');
+        return;
+    }
+
+    showNegotiationModal(agentName);
 }
 
 // Negotiate all agents

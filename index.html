@@ -220,5 +220,56 @@
     </div>
 
     <script src="renderer.js"></script>
+
+    <!-- Agent Negotiation Modal -->
+    <div id="negotiationModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>🤝 Negotiate Agent</h2>
+                <button class="modal-close" onclick="closeNegotiationModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Agent Info -->
+                <div class="agent-info-section">
+                    <h3 id="modalAgentName">Agent Name</h3>
+                    <div class="agent-meta">
+                        <div><strong>Module:</strong> <span id="modalAgentModule"></span></div>
+                        <div><strong>Methods:</strong> <span id="modalAgentMethods"></span></div>
+                    </div>
+                </div>
+
+                <!-- Dependency Graph -->
+                <div class="dependency-section">
+                    <h4>📊 Dependencies</h4>
+                    <div id="modalDependencies" class="dependency-list"></div>
+                </div>
+
+                <!-- Intent Input -->
+                <div class="intent-section">
+                    <label for="negotiationIntent">
+                        <h4>🎯 What should this agent focus on?</h4>
+                        <p class="hint">Describe your improvement goal (e.g., "optimize performance", "improve error handling")</p>
+                    </label>
+                    <textarea
+                        id="negotiationIntent"
+                        rows="4"
+                        placeholder="Enter your intent here...&#10;&#10;Examples:&#10;• Optimize query performance&#10;• Add comprehensive error handling&#10;• Improve data validation&#10;• Enhance logging and monitoring"
+                    ></textarea>
+                </div>
+
+                <!-- Negotiation Options -->
+                <div class="options-section">
+                    <label>
+                        <span>Negotiation Rounds:</span>
+                        <input type="number" id="negotiationRounds" value="3" min="1" max="10" />
+                    </label>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeNegotiationModal()">Cancel</button>
+                <button class="btn-primary" onclick="submitNegotiation()">🤝 Start Negotiation</button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
