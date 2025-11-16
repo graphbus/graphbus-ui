@@ -1012,51 +1012,89 @@ async function runStreamingCommand(command) {
         let displayLine = line;
 
         if (line.includes('User intent:')) {
-            displayLine = `\n🎯 ${line}\n`;
+            displayLine = `\n┌─────────────────────────────────────────┐
+│  🎯 INTENT                              │
+└─────────────────────────────────────────┘
+  ${line}
+`;
         } else if (line.match(/NEGOTIATION ROUND (\d+)\/(\d+)/)) {
             const match = line.match(/NEGOTIATION ROUND (\d+)\/(\d+)/);
             currentRound = match[1];
-            displayLine = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n📊 ROUND ${match[1]}/${match[2]}\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+            displayLine = `
+═══════════════════════════════════════════
+        📊 ROUND ${match[1]}/${match[2]}
+═══════════════════════════════════════════
+`;
             currentPhase = '';
         } else if (line.includes('Proposing')) {
             if (currentPhase !== 'proposing') {
-                displayLine = `\n💡 Phase 1: Proposal Generation\n  ${line}`;
+                displayLine = `
+┌─────────────────────────────────────────┐
+│  💡 STEP 1: Proposal Generation         │
+└─────────────────────────────────────────┘
+  ${line}`;
                 currentPhase = 'proposing';
             } else {
                 displayLine = `  ${line}`;
             }
         } else if (line.includes('evaluated') && (line.includes('accept') || line.includes('reject'))) {
             if (currentPhase !== 'evaluating') {
-                displayLine = `\n📋 Phase 2: Peer Evaluation\n  ${line}`;
+                displayLine = `
+        ↓
+┌─────────────────────────────────────────┐
+│  📋 STEP 2: Peer Evaluation             │
+└─────────────────────────────────────────┘
+  ${line}`;
                 currentPhase = 'evaluating';
             } else {
                 displayLine = `  ${line}`;
             }
         } else if (line.includes('Validating') || line.includes('Schema')) {
             if (currentPhase !== 'validating') {
-                displayLine = `\n🔍 Phase 3: Schema Validation\n  ${line}`;
+                displayLine = `
+        ↓
+┌─────────────────────────────────────────┐
+│  🔍 STEP 3: Schema Validation           │
+└─────────────────────────────────────────┘
+  ${line}`;
                 currentPhase = 'validating';
             } else {
                 displayLine = `  ${line}`;
             }
         } else if (line.includes('Commit created')) {
             if (currentPhase !== 'committing') {
-                displayLine = `\n✅ Phase 4: Consensus & Commit\n  ${line}`;
+                displayLine = `
+        ↓
+┌─────────────────────────────────────────┐
+│  ✅ STEP 4: Consensus & Commit          │
+└─────────────────────────────────────────┘
+  ${line}`;
                 currentPhase = 'committing';
             } else {
                 displayLine = `  ${line}`;
             }
         } else if (line.includes('Modified')) {
             if (currentPhase !== 'modifying') {
-                displayLine = `\n📝 Phase 5: File Modifications\n  ${line}`;
+                displayLine = `
+        ↓
+┌─────────────────────────────────────────┐
+│  📝 STEP 5: File Modifications          │
+└─────────────────────────────────────────┘
+  ${line}`;
                 currentPhase = 'modifying';
             } else {
                 displayLine = `  ${line}`;
             }
         } else if (line.includes('ORCHESTRATION COMPLETE')) {
-            displayLine = `\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n🎉 NEGOTIATION COMPLETE\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+            displayLine = `
+        ↓
+╔═════════════════════════════════════════╗
+║     🎉 NEGOTIATION COMPLETE             ║
+╚═════════════════════════════════════════╝
+`;
         } else if (line.includes('Warning:') || line.includes('Error:')) {
-            displayLine = `\n⚠️ ${line}`;
+            displayLine = `
+⚠️  ${line}`;
         }
 
         // Append to streaming message
