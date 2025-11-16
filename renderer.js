@@ -623,14 +623,43 @@ async function intelligentMethodCall(command) {
 // Chat functions
 function addMessage(text, type = 'assistant') {
     const messages = document.getElementById('messages');
+
+    // Create message wrapper
+    const msgWrapper = document.createElement('div');
+    msgWrapper.className = `message-wrapper ${type}`;
+
+    // Create message content
     const msg = document.createElement('div');
     msg.className = `message ${type}`;
-
-    // Preserve line breaks and basic formatting
     msg.style.whiteSpace = 'pre-wrap';
     msg.textContent = text;
 
-    messages.appendChild(msg);
+    // Create copy button
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn';
+    copyBtn.innerHTML = '📋';
+    copyBtn.title = 'Copy to clipboard';
+    copyBtn.onclick = () => {
+        navigator.clipboard.writeText(text).then(() => {
+            // Show feedback
+            copyBtn.innerHTML = '✓';
+            copyBtn.classList.add('copied');
+            setTimeout(() => {
+                copyBtn.innerHTML = '📋';
+                copyBtn.classList.remove('copied');
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+            copyBtn.innerHTML = '✗';
+            setTimeout(() => {
+                copyBtn.innerHTML = '📋';
+            }, 2000);
+        });
+    };
+
+    msgWrapper.appendChild(msg);
+    msgWrapper.appendChild(copyBtn);
+    messages.appendChild(msgWrapper);
     messages.scrollTop = messages.scrollHeight;
 
     // Track conversation history
@@ -990,18 +1019,56 @@ async function runShellCommand(command) {
 // Execute command with streaming output
 async function runStreamingCommand(command) {
     let streamingMessageElement = null;
+    let streamingMessageWrapper = null;
+    let streamingCopyBtn = null;
     let fullOutput = '';
     let currentRound = 0;
     let currentPhase = '';
 
-    // Create initial message
+    // Create initial message with wrapper and copy button
     const messagesContainer = document.getElementById('messages');
+
+    // Create wrapper
+    const msgWrapper = document.createElement('div');
+    msgWrapper.className = 'message-wrapper assistant';
+
+    // Create message content
     const messageDiv = document.createElement('div');
     messageDiv.className = 'message assistant';
+    messageDiv.style.whiteSpace = 'pre-wrap';
     messageDiv.textContent = '🔄 Starting negotiation...\n';
-    messagesContainer.appendChild(messageDiv);
+
+    // Create copy button
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn';
+    copyBtn.innerHTML = '📋';
+    copyBtn.title = 'Copy to clipboard';
+    copyBtn.onclick = () => {
+        const textToCopy = messageDiv.textContent;
+        navigator.clipboard.writeText(textToCopy).then(() => {
+            copyBtn.innerHTML = '✓';
+            copyBtn.classList.add('copied');
+            setTimeout(() => {
+                copyBtn.innerHTML = '📋';
+                copyBtn.classList.remove('copied');
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy:', err);
+            copyBtn.innerHTML = '✗';
+            setTimeout(() => {
+                copyBtn.innerHTML = '📋';
+            }, 2000);
+        });
+    };
+
+    msgWrapper.appendChild(messageDiv);
+    msgWrapper.appendChild(copyBtn);
+    messagesContainer.appendChild(msgWrapper);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
     streamingMessageElement = messageDiv;
+    streamingMessageWrapper = msgWrapper;
+    streamingCopyBtn = copyBtn;
 
     // Set up event listeners
     const outputHandler = (data) => {

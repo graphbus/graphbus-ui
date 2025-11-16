@@ -137,11 +137,24 @@ body {
     margin-bottom: 12px;
 }
 
-.message {
+.message-wrapper {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
     margin-bottom: 12px;
+    max-width: 80%;
+    align-items: flex-start;
+}
+
+.message-wrapper.user {
+    margin-left: auto;
+    align-items: flex-end;
+}
+
+.message {
     padding: 10px 14px;
     border-radius: 8px;
-    max-width: 80%;
+    width: 100%;
     line-height: 1.5;
     white-space: pre-wrap;
     word-wrap: break-word;
@@ -150,7 +163,6 @@ body {
 
 .message.user {
     background: #667eea;
-    margin-left: auto;
     text-align: right;
 }
 
@@ -163,6 +175,30 @@ body {
     font-style: italic;
     opacity: 0.8;
     font-size: 13px;
+}
+
+.copy-btn {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    opacity: 0.6;
+}
+
+.copy-btn:hover {
+    background: #333;
+    border-color: #667eea;
+    opacity: 1;
+    transform: translateY(-1px);
+}
+
+.copy-btn.copied {
+    background: #064e3b;
+    border-color: #6ee7b7;
+    color: #6ee7b7;
 }
 
 .chat-input {
