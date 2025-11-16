@@ -347,9 +347,7 @@ NEVER leave compound requests half-finished!`;
                     params: parsed.params || {}
                 };
             } catch (e) {
-                // Not JSON, just return as text
-                console.error('Failed to parse Claude response as JSON:', e);
-                console.error('Raw response:', assistantMessage);
+                // Not JSON, just return as text (this is normal for conversational responses)
                 return {
                     message: assistantMessage,
                     action: null,
