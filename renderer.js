@@ -1112,11 +1112,32 @@ function displayAgents(nodes, edges = []) {
             hover: true,
             tooltipDelay: 100,
             navigationButtons: true,
-            keyboard: true
+            keyboard: false // Disable by default, enable on focus
         }
     };
 
     graphNetwork = new vis.Network(container, data, options);
+
+    // Make canvas focusable
+    container.setAttribute('tabindex', '0');
+
+    // Enable keyboard controls only when graph is focused
+    container.addEventListener('focus', () => {
+        if (graphNetwork) {
+            graphNetwork.setOptions({ interaction: { keyboard: true } });
+        }
+    });
+
+    container.addEventListener('blur', () => {
+        if (graphNetwork) {
+            graphNetwork.setOptions({ interaction: { keyboard: false } });
+        }
+    });
+
+    // Focus graph when clicked
+    container.addEventListener('click', () => {
+        container.focus();
+    });
 
     // Add click handler for negotiation
     graphNetwork.on('click', (params) => {

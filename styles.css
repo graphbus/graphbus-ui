@@ -877,3 +877,14 @@ button:hover {
     background: #333;
     color: #fff;
 }
+
+/* Graph Focus Indicator */
+#graphCanvas {
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+#graphCanvas:focus {
+    border-color: #667eea !important;
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
+}
