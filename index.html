@@ -230,12 +230,14 @@
 
                 <!-- System State View -->
                 <div id="stateView" class="view">
-                    <div class="view-content" style="padding: 20px;">
+                    <div class="view-content" style="padding: 0;">
                         <div class="view-header">
                             <h2>🔄 System State</h2>
                             <span class="mini-label" id="workflowPhase">Initializing</span>
                         </div>
-                        <div id="systemState" style="padding: 20px; color: #aaa;">
+
+                        <!-- State Summary -->
+                        <div id="systemState" style="padding: 20px; border-bottom: 1px solid #333;">
                             <div style="margin-bottom: 12px;">
                                 <strong style="color: #667eea;">Status:</strong>
                                 <span id="phaseStatus">Starting up...</span>
@@ -247,6 +249,40 @@
                             <div>
                                 <strong style="color: #667eea;">Runtime:</strong>
                                 <span id="runtimeStatus">Stopped</span>
+                            </div>
+                        </div>
+
+                        <!-- State Files Browser -->
+                        <div class="state-browser">
+                            <div class="state-sidebar">
+                                <h3>📂 State Files</h3>
+                                <div id="stateFilesList" class="state-files-list">
+                                    <div class="state-file-item" onclick="loadStateFile('graph.json')">
+                                        graph.json
+                                    </div>
+                                    <div class="state-file-item" onclick="loadStateFile('agents.json')">
+                                        agents.json
+                                    </div>
+                                    <div class="state-file-item" onclick="loadStateFile('topics.json')">
+                                        topics.json
+                                    </div>
+                                    <div class="state-file-item" onclick="loadStateFile('build_summary.json')">
+                                        build_summary.json
+                                    </div>
+                                    <div class="state-file-item" onclick="loadStateFile('conversations.json')">
+                                        conversations.json
+                                    </div>
+                                    <div class="state-file-item" onclick="loadStateFile('negotiations.json')">
+                                        negotiations.json
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="state-content">
+                                <div class="state-content-header">
+                                    <span id="currentStateFile">Select a file to view</span>
+                                    <button class="copy-btn" id="copyStateBtn" style="display: none;" onclick="copyStateContent()">📋</button>
+                                </div>
+                                <pre id="stateFileContent" class="state-file-viewer">Select a file from the left to view its contents</pre>
                             </div>
                         </div>
                     </div>

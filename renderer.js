@@ -1713,6 +1713,67 @@ function showAgentActions(agentName) {
 // Store current negotiation agent
 let currentNegotiationAgent = null;
 
+// State file viewer
+let currentStateFileContent = '';
+
+async function loadStateFile(filename) {
+    try {
+        const graphbusDir = `${workingDirectory}/.graphbus`;
+        const filePath = `${graphbusDir}/${filename}`;
+
+        // Read file using command
+        const result = await window.graphbus.runCommand(`cat "${filePath}"`);
+
+        if (result.success && result.result.stdout) {
+            let content = result.result.stdout;
+
+            // Try to pretty-print JSON
+            try {
+                const json = JSON.parse(content);
+                content = JSON.stringify(json, null, 2);
+            } catch (e) {
+                // Not JSON or already formatted, use as is
+            }
+
+            // Update UI
+            document.getElementById('stateFileContent').textContent = content;
+            document.getElementById('currentStateFile').textContent = filename;
+            document.getElementById('copyStateBtn').style.display = 'block';
+            currentStateFileContent = content;
+
+            // Update active state
+            document.querySelectorAll('.state-file-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.target.classList.add('active');
+        } else {
+            document.getElementById('stateFileContent').textContent = `Error: File not found or empty\n\n${result.error || 'Unknown error'}`;
+            document.getElementById('copyStateBtn').style.display = 'none';
+        }
+    } catch (error) {
+        document.getElementById('stateFileContent').textContent = `Error loading file: ${error.message}`;
+        document.getElementById('copyStateBtn').style.display = 'none';
+    }
+}
+
+function copyStateContent() {
+    const copyBtn = document.getElementById('copyStateBtn');
+    navigator.clipboard.writeText(currentStateFileContent).then(() => {
+        copyBtn.innerHTML = '✓';
+        copyBtn.classList.add('copied');
+        setTimeout(() => {
+            copyBtn.innerHTML = '📋';
+            copyBtn.classList.remove('copied');
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        copyBtn.innerHTML = '✗';
+        setTimeout(() => {
+            copyBtn.innerHTML = '📋';
+        }, 2000);
+    });
+}
+
 // Show negotiation modal
 function showNegotiationModal(agentName) {
     const node = currentGraphData.nodes.find(n => n.name === agentName);

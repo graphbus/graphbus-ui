@@ -1223,3 +1223,92 @@ button:hover {
     font-size: 12px;
     color: #888;
 }
+
+/* State Browser */
+.state-browser {
+    display: flex;
+    height: calc(100vh - 260px);
+}
+
+.state-sidebar {
+    width: 250px;
+    background: #1e1e1e;
+    border-right: 1px solid #333;
+    padding: 20px;
+    overflow-y: auto;
+}
+
+.state-sidebar h3 {
+    font-size: 14px;
+    color: #667eea;
+    margin-bottom: 16px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.state-files-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.state-file-item {
+    padding: 10px 12px;
+    background: #2a2a2a;
+    border: 1px solid #333;
+    border-radius: 6px;
+    color: #aaa;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: 'Monaco', 'Courier New', monospace;
+    transition: all 0.2s;
+}
+
+.state-file-item:hover {
+    background: #333;
+    border-color: #667eea;
+    color: #e0e0e0;
+}
+
+.state-file-item.active {
+    background: #667eea;
+    border-color: #667eea;
+    color: #fff;
+}
+
+.state-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.state-content-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 24px;
+    background: #1e1e1e;
+    border-bottom: 1px solid #333;
+}
+
+.state-content-header span {
+    font-size: 14px;
+    color: #667eea;
+    font-weight: 600;
+    font-family: 'Monaco', 'Courier New', monospace;
+}
+
+.state-file-viewer {
+    flex: 1;
+    background: #0a0a0a;
+    color: #e0e0e0;
+    padding: 24px;
+    margin: 0;
+    overflow: auto;
+    font-family: 'Monaco', 'Courier New', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
