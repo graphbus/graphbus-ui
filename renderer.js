@@ -1725,21 +1725,23 @@ async function loadStateFile(filename) {
         const result = await window.graphbus.runCommand(`cat "${filePath}"`);
 
         if (result.success && result.result.stdout) {
-            let content = result.result.stdout;
+            const rawContent = result.result.stdout;
 
-            // Try to pretty-print JSON
+            // Try to parse and format based on file type
             try {
-                const json = JSON.parse(content);
-                content = JSON.stringify(json, null, 2);
-            } catch (e) {
-                // Not JSON or already formatted, use as is
-            }
+                const json = JSON.parse(rawContent);
+                const formatted = formatStateData(filename, json);
 
-            // Update UI
-            document.getElementById('stateFileContent').textContent = content;
-            document.getElementById('currentStateFile').textContent = filename;
-            document.getElementById('copyStateBtn').style.display = 'block';
-            currentStateFileContent = content;
+                // Update UI
+                document.getElementById('stateFileContent').innerHTML = formatted;
+                document.getElementById('currentStateFile').textContent = filename;
+                document.getElementById('copyStateBtn').style.display = 'block';
+                currentStateFileContent = JSON.stringify(json, null, 2);
+            } catch (e) {
+                // Not JSON, show as plain text
+                document.getElementById('stateFileContent').textContent = rawContent;
+                currentStateFileContent = rawContent;
+            }
 
             // Update active state
             document.querySelectorAll('.state-file-item').forEach(item => {
@@ -1754,6 +1756,135 @@ async function loadStateFile(filename) {
         document.getElementById('stateFileContent').textContent = `Error loading file: ${error.message}`;
         document.getElementById('copyStateBtn').style.display = 'none';
     }
+}
+
+function formatStateData(filename, data) {
+    switch(filename) {
+        case 'graph.json':
+            return formatGraph(data);
+        case 'agents.json':
+            return formatAgents(data);
+        case 'topics.json':
+            return formatTopics(data);
+        case 'build_summary.json':
+            return formatBuildSummary(data);
+        case 'conversations.json':
+            return formatConversations(data);
+        case 'negotiations.json':
+            return formatNegotiations(data);
+        default:
+            return `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+    }
+}
+
+function formatGraph(data) {
+    let html = '<div class="state-formatted">';
+    html += `<h3>📊 Graph Structure</h3>`;
+    html += `<div class="state-section">`;
+    html += `<h4>Nodes (${data.nodes.length})</h4>`;
+    data.nodes.forEach(node => {
+        html += `<div class="state-card">`;
+        html += `<div class="state-card-header">${node.name}</div>`;
+        html += `<div class="state-card-body">`;
+        html += `<strong>Module:</strong> ${node.data.module}<br>`;
+        html += `<strong>Class:</strong> ${node.data.class_name}<br>`;
+        html += `<strong>Methods:</strong> ${node.data.methods.join(', ')}<br>`;
+        if (node.data.subscriptions && node.data.subscriptions.length > 0) {
+            html += `<strong>Subscriptions:</strong> ${node.data.subscriptions.join(', ')}`;
+        }
+        html += `</div></div>`;
+    });
+    html += `</div>`;
+
+    html += `<div class="state-section">`;
+    html += `<h4>Edges (${data.edges.length})</h4>`;
+    data.edges.forEach(edge => {
+        html += `<div class="state-edge">`;
+        html += `${edge.src} → ${edge.dst} <span class="edge-type">(${edge.data.edge_type})</span>`;
+        html += `</div>`;
+    });
+    html += `</div></div>`;
+    return html;
+}
+
+function formatAgents(data) {
+    let html = '<div class="state-formatted">';
+    html += `<h3>🤖 Agents (${data.length})</h3>`;
+    data.forEach(agent => {
+        html += `<div class="state-card">`;
+        html += `<div class="state-card-header">${agent.name}</div>`;
+        html += `<div class="state-card-body">`;
+        html += `<strong>Module:</strong> ${agent.module}<br>`;
+        html += `<strong>Class:</strong> ${agent.class_name}<br>`;
+        html += `<strong>Methods:</strong> ${agent.methods.join(', ')}`;
+        html += `</div></div>`;
+    });
+    html += '</div>';
+    return html;
+}
+
+function formatTopics(data) {
+    let html = '<div class="state-formatted">';
+    html += `<h3>📢 Topics (${data.length})</h3>`;
+    data.forEach(topic => {
+        html += `<div class="state-card">`;
+        html += `<div class="state-card-header">${topic}</div>`;
+        html += `</div>`;
+    });
+    html += '</div>';
+    return html;
+}
+
+function formatBuildSummary(data) {
+    let html = '<div class="state-formatted">';
+    html += `<h3>🔨 Build Summary</h3>`;
+    html += `<div class="state-summary">`;
+    html += `<div class="summary-item"><strong>Total Agents:</strong> ${data.total_agents}</div>`;
+    html += `<div class="summary-item"><strong>Total Topics:</strong> ${data.total_topics}</div>`;
+    html += `<div class="summary-item"><strong>Total Edges:</strong> ${data.total_edges}</div>`;
+    html += `<div class="summary-item"><strong>Build Time:</strong> ${data.build_time_seconds}s</div>`;
+    html += `<div class="summary-item"><strong>Status:</strong> ${data.status}</div>`;
+    if (data.timestamp) {
+        html += `<div class="summary-item"><strong>Timestamp:</strong> ${new Date(data.timestamp * 1000).toLocaleString()}</div>`;
+    }
+    html += `</div></div>`;
+    return html;
+}
+
+function formatConversations(data) {
+    let html = '<div class="state-formatted">';
+    html += `<h3>💬 Conversations (${data.messages.length} messages)</h3>`;
+    data.messages.forEach(msg => {
+        const time = new Date(msg.timestamp).toLocaleTimeString();
+        html += `<div class="conversation-msg ${msg.type}">`;
+        html += `<span class="msg-time">${time}</span>`;
+        html += `<span class="msg-type">[${msg.type}]</span>`;
+        html += `<div class="msg-text">${msg.text}</div>`;
+        html += `</div>`;
+    });
+    html += '</div>';
+    return html;
+}
+
+function formatNegotiations(data) {
+    let html = '<div class="state-formatted">';
+    html += `<h3>🤝 Negotiations (${data.length})</h3>`;
+    data.forEach((neg, i) => {
+        html += `<div class="state-card">`;
+        html += `<div class="state-card-header">Negotiation #${i + 1}</div>`;
+        html += `<div class="state-card-body">`;
+        html += `<strong>Proposal ID:</strong> ${neg.proposal_id}<br>`;
+        html += `<strong>Agent:</strong> ${neg.agent}<br>`;
+        html += `<strong>Improvement:</strong> ${neg.improvement_type}<br>`;
+        html += `<strong>Status:</strong> ${neg.status}<br>`;
+        if (neg.commit_id) {
+            html += `<strong>Commit:</strong> ${neg.commit_id}<br>`;
+        }
+        html += `<strong>Round:</strong> ${neg.round}`;
+        html += `</div></div>`;
+    });
+    html += '</div>';
+    return html;
 }
 
 function copyStateContent() {
