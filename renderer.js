@@ -686,20 +686,58 @@ async function loadConversation() {
         if (result.success && result.result && result.result.messages) {
             const savedMessages = result.result.messages;
 
-            // Restore messages to UI
+            // Clear existing messages
+            const messagesContainer = document.getElementById('messages');
+            if (messagesContainer) {
+                messagesContainer.innerHTML = '';
+            }
+
+            // Restore messages to UI using addMessage (includes copy buttons)
             savedMessages.forEach(msg => {
+                // Temporarily disable auto-save during restoration
                 const messages = document.getElementById('messages');
+
+                // Create message wrapper
+                const msgWrapper = document.createElement('div');
+                msgWrapper.className = `message-wrapper ${msg.type}`;
+
+                // Create message content
                 const msgElement = document.createElement('div');
                 msgElement.className = `message ${msg.type}`;
                 msgElement.style.whiteSpace = 'pre-wrap';
                 msgElement.textContent = msg.text;
-                messages.appendChild(msgElement);
+
+                // Create copy button
+                const copyBtn = document.createElement('button');
+                copyBtn.className = 'copy-btn';
+                copyBtn.innerHTML = '📋';
+                copyBtn.title = 'Copy to clipboard';
+                copyBtn.onclick = () => {
+                    navigator.clipboard.writeText(msg.text).then(() => {
+                        copyBtn.innerHTML = '✓';
+                        copyBtn.classList.add('copied');
+                        setTimeout(() => {
+                            copyBtn.innerHTML = '📋';
+                            copyBtn.classList.remove('copied');
+                        }, 2000);
+                    }).catch(err => {
+                        console.error('Failed to copy:', err);
+                        copyBtn.innerHTML = '✗';
+                        setTimeout(() => {
+                            copyBtn.innerHTML = '📋';
+                        }, 2000);
+                    });
+                };
+
+                msgWrapper.appendChild(msgElement);
+                msgWrapper.appendChild(copyBtn);
+                messages.appendChild(msgWrapper);
             });
 
             // Restore to history
             workflowState.conversationHistory = savedMessages;
 
-            addMessage('✓ Previous conversation restored', 'system');
+            const messages = document.getElementById('messages');
             messages.scrollTop = messages.scrollHeight;
         }
     } catch (error) {
