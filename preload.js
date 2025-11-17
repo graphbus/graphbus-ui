@@ -52,7 +52,15 @@ contextBridge.exposeInMainWorld('graphbus', {
     // Conversation persistence
     conversationSave: (messages) => ipcRenderer.invoke('conversation:save', messages),
     conversationLoad: () => ipcRenderer.invoke('conversation:load'),
-    conversationClear: () => ipcRenderer.invoke('conversation:clear')
+    conversationClear: () => ipcRenderer.invoke('conversation:clear'),
+
+    // Git and GitHub integration
+    gitCreateBranch: (branchName) => ipcRenderer.invoke('git:create-branch', branchName),
+    gitCommitAndPush: (message, branchName) => ipcRenderer.invoke('git:commit-and-push', message, branchName),
+    githubCreatePR: (title, body, branchName) => ipcRenderer.invoke('github:create-pr', title, body, branchName),
+    githubGetPRComments: (prNumber) => ipcRenderer.invoke('github:get-pr-comments', prNumber),
+    prSaveTracking: (prData) => ipcRenderer.invoke('pr:save-tracking', prData),
+    prLoadTracking: () => ipcRenderer.invoke('pr:load-tracking')
 });
 
 console.log('Preload script loaded - graphbus API exposed to renderer');

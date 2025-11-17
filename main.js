@@ -741,6 +741,128 @@ ipcMain.handle('conversation:clear', async (event) => {
     }
 });
 
+// Git and GitHub integration
+ipcMain.handle('git:create-branch', async (event, branchName) => {
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+
+        // Create and checkout new branch
+        await execAsync(`git checkout -b ${branchName}`, { cwd: workingDirectory });
+
+        return { success: true, branch: branchName };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('git:commit-and-push', async (event, message, branchName) => {
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+
+        // Add all changes
+        await execAsync('git add .', { cwd: workingDirectory });
+
+        // Commit
+        await execAsync(`git commit -m "${message}"`, { cwd: workingDirectory });
+
+        // Push to remote
+        await execAsync(`git push -u origin ${branchName}`, { cwd: workingDirectory });
+
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('github:create-pr', async (event, title, body, branchName) => {
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+
+        // Create PR using gh CLI
+        const { stdout } = await execAsync(
+            `gh pr create --title "${title}" --body "${body}" --head ${branchName}`,
+            { cwd: workingDirectory }
+        );
+
+        // Extract PR URL from output
+        const urlMatch = stdout.match(/https:\/\/github\.com\/[^\s]+/);
+        const prUrl = urlMatch ? urlMatch[0] : null;
+
+        // Extract PR number
+        const prNumberMatch = prUrl ? prUrl.match(/\/pull\/(\d+)/) : null;
+        const prNumber = prNumberMatch ? parseInt(prNumberMatch[1]) : null;
+
+        return { success: true, url: prUrl, number: prNumber };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('github:get-pr-comments', async (event, prNumber) => {
+    try {
+        const { exec } = require('child_process');
+        const { promisify } = require('util');
+        const execAsync = promisify(exec);
+
+        // Get PR comments using gh CLI
+        const { stdout } = await execAsync(
+            `gh pr view ${prNumber} --json comments --jq '.comments[] | {author: .author.login, body: .body, createdAt: .createdAt}'`,
+            { cwd: workingDirectory }
+        );
+
+        const comments = stdout.trim().split('\n').filter(line => line).map(line => JSON.parse(line));
+
+        return { success: true, comments };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('pr:save-tracking', async (event, prData) => {
+    try {
+        const graphbusDir = path.join(workingDirectory, '.graphbus');
+        const trackingFile = path.join(graphbusDir, 'pr_tracking.json');
+
+        let tracking = { prs: [] };
+        if (fs.existsSync(trackingFile)) {
+            tracking = JSON.parse(fs.readFileSync(trackingFile, 'utf-8'));
+        }
+
+        // Add new PR data
+        tracking.prs.push({
+            ...prData,
+            timestamp: Date.now()
+        });
+
+        fs.writeFileSync(trackingFile, JSON.stringify(tracking, null, 2));
+
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('pr:load-tracking', async (event) => {
+    try {
+        const trackingFile = path.join(workingDirectory, '.graphbus', 'pr_tracking.json');
+
+        if (!fs.existsSync(trackingFile)) {
+            return { success: true, result: { prs: [] } };
+        }
+
+        const data = JSON.parse(fs.readFileSync(trackingFile, 'utf-8'));
+        return { success: true, result: data };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
 ipcMain.handle('system:set-cwd', async (event, newPath) => {
     try {
         // Validate path exists
