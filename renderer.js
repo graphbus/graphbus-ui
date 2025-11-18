@@ -2158,13 +2158,9 @@ async function runShellCommand(command) {
         }
     }
 
-    // Handle negotiation via WebSocket
-    if (command.includes('graphbus negotiate')) {
-        return runNegotiationViaWebSocket(command);
-    }
-
-    // Use streaming for build commands
-    if (command.includes('graphbus build') && command.includes('--enable-agents')) {
+    // Use streaming for build and negotiate commands
+    if ((command.includes('graphbus build') && command.includes('--enable-agents')) ||
+        command.includes('graphbus negotiate')) {
         return runStreamingCommand(command);
     }
 
