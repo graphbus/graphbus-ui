@@ -40,6 +40,21 @@ contextBridge.exposeInMainWorld('graphbus', {
     onCommandOutput: (callback) => ipcRenderer.on('command-output', (event, data) => callback(data)),
     onCommandComplete: (callback) => ipcRenderer.on('command-complete', (event, data) => callback(data)),
     onCommandError: (callback) => ipcRenderer.on('command-error', (event, data) => callback(data)),
+    onCommandPrompt: (callback) => ipcRenderer.on('command-prompt', (event, data) => callback(data)),
+    sendStdin: (input) => ipcRenderer.invoke('system:send-stdin', input),
+
+    // WebSocket communication
+    wsSendMessage: (text, metadata) => ipcRenderer.invoke('ws:send-message', text, metadata),
+    wsSendAnswer: (questionId, answer) => ipcRenderer.invoke('ws:send-answer', questionId, answer),
+    wsIsConnected: () => ipcRenderer.invoke('ws:is-connected'),
+    wsReconnect: () => ipcRenderer.invoke('ws:reconnect'),
+    onWsConnected: (callback) => ipcRenderer.on('ws-connected', callback),
+    onWsDisconnected: (callback) => ipcRenderer.on('ws-disconnected', callback),
+    onWsAgentMessage: (callback) => ipcRenderer.on('ws-agent-message', (event, data) => callback(data)),
+    onWsProgress: (callback) => ipcRenderer.on('ws-progress', (event, data) => callback(data)),
+    onWsQuestion: (callback) => ipcRenderer.on('ws-question', (event, data) => callback(data)),
+    onWsError: (callback) => ipcRenderer.on('ws-error', (event, data) => callback(data)),
+    onWsResult: (callback) => ipcRenderer.on('ws-result', (event, data) => callback(data)),
 
     // Claude AI operations
     claudeInitialize: (apiKey, shouldSave = true) => ipcRenderer.invoke('claude:initialize', apiKey, shouldSave),

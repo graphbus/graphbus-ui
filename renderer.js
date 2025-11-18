@@ -16,6 +16,909 @@ let workflowState = {
     isProcessingCompoundRequest: false // Track if Claude is handling multi-step request
 };
 
+// Command history for arrow key navigation
+let commandHistory = [];
+let historyIndex = -1; // -1 means not navigating history
+let currentDraft = ''; // Store current input when starting to navigate history
+
+// Auto-negotiation tracking
+let pendingAutoNegotiation = false;
+let autoNegotiationIntent = '';
+
+// Command history persistence
+const HISTORY_STORAGE_KEY = 'graphbus_command_history';
+const MAX_HISTORY_SIZE = 100;
+let autocompleteIndex = -1;
+
+// Process flow control
+let isProcessing = false;
+let inputQueue = [];
+let lastEscapeTime = 0;
+const DOUBLE_ESC_THRESHOLD = 500; // ms
+let currentWorkflowStage = 'init';
+let workflowDAG = null;
+let workflowPlan = null; // Stores the created DAG plan
+let existingAgents = []; // Track agents found during check_agents stage
+
+/**
+ * Define default workflow stages (can be customized per request)
+ */
+const DEFAULT_WORKFLOW_STAGES = {
+    init: {
+        name: 'Initialize',
+        description: 'Setting up the project',
+        autoProgress: true,
+        nextStage: 'check_agents',
+        action: () => ({ prompt: '🚀 Checking your project structure...', autoRun: true })
+    },
+
+    check_agents: {
+        name: 'Check Agents',
+        description: 'Analyzing existing agents',
+        autoProgress: false,
+        nextStage: 'generate_agents',
+        requiredInput: false,
+        action: () => ({ prompt: '🔍 Checking for existing agents...', command: 'ls -la agents/' })
+    },
+
+    generate_agents: {
+        name: 'Generate Agents',
+        description: 'Creating new agent files',
+        autoProgress: false,
+        nextStage: 'build',
+        requiredInput: false,
+        condition: (state) => !state.hasAllAgents,
+        action: (state) => ({
+            prompt: `📝 Generating missing agents (need: ${state.neededAgents?.join(', ') || 'agents'})...`,
+            autoRun: true
+        })
+    },
+
+    build: {
+        name: 'Build',
+        description: 'Building agent dependency graph',
+        autoProgress: true,
+        nextStage: 'negotiate',
+        action: () => ({
+            prompt: '🏗️ Building agents and analyzing dependencies...',
+            command: 'graphbus build agents/ --enable-agents',
+            autoRun: true
+        })
+    },
+
+    negotiate: {
+        name: 'Negotiate',
+        description: 'Running agent self-assessment',
+        autoProgress: false,
+        nextStage: 'runtime',
+        requiredInput: false,
+        action: (state) => ({
+            prompt: `🤝 Running negotiation with intent: "${state.intent || 'improve system'}"`,
+            command: `graphbus negotiate .graphbus --intent "${state.intent || 'enhance agent implementation'}" --rounds 5`,
+            autoRun: true
+        })
+    },
+
+    runtime: {
+        name: 'Runtime',
+        description: 'Starting agent orchestration',
+        autoProgress: true,
+        nextStage: 'complete',
+        action: () => ({
+            prompt: '⚙️ Starting GraphBus runtime with agent orchestration...',
+            command: 'graphbus run .graphbus',
+            autoRun: true
+        })
+    },
+
+    complete: {
+        name: 'Complete',
+        description: 'Workflow finished',
+        autoProgress: false,
+        action: () => ({
+            prompt: '✅ Workflow complete! Your agents are ready. What would you like to do next?',
+            requiresUserInput: true
+        })
+    }
+};
+
+/**
+ * Parse structured plan from Claude's response object
+ */
+function parsePlanFromClaudeResponse(response) {
+    if (!response || !response.plan) {
+        return null;
+    }
+
+    console.log('[Plan] Extracted structured plan from Claude response');
+    return response.plan;
+}
+
+/**
+ * Display a structured plan from Claude to the user
+ */
+function displayStructuredPlan(plan) {
+    if (!plan) return;
+
+    console.log('[Plan] Displaying structured plan:', plan.name);
+
+    // Show plan header
+    let planDisplay = `📋 **PLAN: ${plan.name}**\n`;
+    planDisplay += `Intent: ${plan.intent}\n\n`;
+
+    // Show proposed agents
+    if (plan.agents && plan.agents.length > 0) {
+        planDisplay += `**Proposed Agents:**\n`;
+        plan.agents.forEach(agent => {
+            planDisplay += `• ${agent.name} - ${agent.description}\n`;
+            if (agent.topics && agent.topics.length > 0) {
+                planDisplay += `  Topics: ${agent.topics.join(', ')}\n`;
+            }
+        });
+        planDisplay += `\n`;
+    }
+
+    // Show pub/sub topology
+    if (plan.pub_sub_topology && Object.keys(plan.pub_sub_topology).length > 0) {
+        planDisplay += `**Pub/Sub Topology:**\n`;
+        Object.entries(plan.pub_sub_topology).forEach(([topic, description]) => {
+            planDisplay += `• ${topic}: ${description}\n`;
+        });
+        planDisplay += `\n`;
+    }
+
+    // Show workflow stages
+    if (plan.workflow_stages && plan.workflow_stages.length > 0) {
+        planDisplay += `**Workflow Stages:**\n`;
+        plan.workflow_stages.forEach((stage, idx) => {
+            planDisplay += `${idx + 1}. ${stage.stage.toUpperCase()} - ${stage.description}\n`;
+        });
+    }
+
+    addMessage(planDisplay, 'system');
+}
+
+/**
+ * Convert structured plan to DAG stages
+ */
+function createDAGFromPlan(plan) {
+    console.log('[Plan] Converting structured plan to DAG stages');
+
+    if (!plan || !plan.workflow_stages) {
+        console.log('[Plan] No workflow stages in plan, using defaults');
+        return { dag: DEFAULT_WORKFLOW_STAGES, stageOrder: ['init'], intent: '' };
+    }
+
+    // Create custom DAG from plan's workflow stages
+    let dag = { ...DEFAULT_WORKFLOW_STAGES };
+    let stageOrder = [];
+
+    // CRITICAL: Always ensure check_agents comes before generate_agents
+    const hasCheckAgents = plan.workflow_stages.some(s => s.stage.toLowerCase() === 'check_agents');
+    const hasGenerateAgents = plan.workflow_stages.some(s => s.stage.toLowerCase() === 'generate_agents');
+
+    if (hasGenerateAgents && !hasCheckAgents) {
+        console.log('[Plan] Adding check_agents stage before generate_agents (search-first pattern)');
+        plan.workflow_stages.unshift({
+            stage: 'check_agents',
+            command: 'ls -la agents/',
+            description: 'Check existing agents first (never generate duplicates)'
+        });
+    }
+
+    // Map plan stages to DAG stages
+    plan.workflow_stages.forEach((stage, idx) => {
+        const stageName = stage.stage.toLowerCase();
+
+        // Add stage to order if not already there
+        if (!stageOrder.includes(stageName)) {
+            stageOrder.push(stageName);
+        }
+
+        // Update DAG entry with plan details
+        if (!dag[stageName]) {
+            dag[stageName] = {
+                name: stage.stage.toUpperCase(),
+                description: stage.description,
+                autoProgress: false,
+                nextStage: null
+            };
+        }
+
+        // Set up next stage link - find next stage in the filtered order
+        const nextIdx = plan.workflow_stages.findIndex(s => s.stage.toLowerCase() === stageName) + 1;
+        if (nextIdx < plan.workflow_stages.length) {
+            const nextStage = plan.workflow_stages[nextIdx].stage.toLowerCase();
+            dag[stageName].nextStage = nextStage;
+        } else {
+            dag[stageName].nextStage = 'complete';
+        }
+
+        // Add action if command is specified
+        if (stage.command) {
+            dag[stageName].command = stage.command;
+            dag[stageName].action = () => ({
+                prompt: `▶️ ${stage.description}`,
+                command: stage.command,
+                autoRun: true
+            });
+        } else if (stage.commands && stage.commands.length > 0) {
+            // Handle multiple commands (like generate_agents)
+            dag[stageName].commands = stage.commands;
+            dag[stageName].action = () => ({
+                prompt: `▶️ ${stage.description}`,
+                commands: stage.commands,
+                autoRun: true
+            });
+        }
+    });
+
+    return {
+        dag: dag,
+        stageOrder: stageOrder,
+        intent: plan.intent || '',
+        plan: plan
+    };
+}
+
+/**
+ * Create a custom DAG based on Claude's analysis and current context
+ */
+function createWorkflowDAG(claudeMessage, context = {}) {
+    console.log(`[DAG] Creating DAG based on Claude's analysis and context`);
+
+    // Parse Claude's message to understand what will happen
+    const lowerMsg = claudeMessage.toLowerCase();
+
+    // Build the DAG based on context
+    let dag = { ...DEFAULT_WORKFLOW_STAGES };
+    let stageOrder = [];
+
+    // Always start from current position, don't restart
+    if (context.currentStage) {
+        stageOrder = [context.currentStage];
+    } else {
+        stageOrder = ['init'];
+    }
+
+    // Analyze what Claude says it will do
+    const willCheck = /check|inspect|list|scan/i.test(lowerMsg);
+    const willGenerate = /generate|create|new/i.test(lowerMsg);
+    const willBuild = /build|compile|analyze/i.test(lowerMsg);
+    const willNegotiate = /negotiate|improve|self-assess|optimize/i.test(lowerMsg);
+    const willRun = /run|execute|start|activate/i.test(lowerMsg);
+
+    // Build the pipeline based on what Claude will do
+    if (willCheck && !stageOrder.includes('check_agents')) {
+        stageOrder.push('check_agents');
+    }
+
+    if (willGenerate && !stageOrder.includes('generate_agents')) {
+        stageOrder.push('generate_agents');
+    }
+
+    if (willBuild && !stageOrder.includes('build')) {
+        stageOrder.push('build');
+    }
+
+    if (willNegotiate && !stageOrder.includes('negotiate')) {
+        stageOrder.push('negotiate');
+    }
+
+    if (willRun && !stageOrder.includes('runtime')) {
+        stageOrder.push('runtime');
+    }
+
+    // Add completion stage
+    if (!stageOrder.includes('complete')) {
+        stageOrder.push('complete');
+    }
+
+    // If only has initial stage, use full pipeline
+    if (stageOrder.length === 1) {
+        stageOrder = ['init', 'check_agents', 'generate_agents', 'build', 'negotiate', 'runtime', 'complete'];
+    }
+
+    // Link stages in order
+    for (let i = 0; i < stageOrder.length - 1; i++) {
+        const currentStage = stageOrder[i];
+        const nextStage = stageOrder[i + 1];
+        if (dag[currentStage]) {
+            dag[currentStage].nextStage = nextStage;
+        }
+    }
+
+    // Mark last stage as having no next
+    const lastStage = stageOrder[stageOrder.length - 1];
+    if (dag[lastStage]) {
+        dag[lastStage].nextStage = null;
+    }
+
+    console.log(`[DAG] Created context-aware DAG: ${stageOrder.join(' → ')}`);
+    return { dag, stageOrder, message: claudeMessage, context };
+}
+
+/**
+ * Display the DAG plan for user approval
+ */
+function displayWorkflowPlan(plan) {
+    const { stageOrder, intent } = plan;
+
+    let planText = `📋 **Workflow Plan**\n\n`;
+    planText += `Intent: "${intent}"\n\n`;
+    planText += `Stages:\n`;
+
+    stageOrder.forEach((stage, idx) => {
+        const stageInfo = plan.dag[stage];
+        planText += `${idx + 1}. ${stageInfo?.name || stage}\n`;
+    });
+
+    addMessage(planText, 'system');
+    addMessage('Starting execution...', 'system');
+}
+
+/**
+ * Initialize workflow DAG (legacy - now creates on demand)
+ */
+function initializeWorkflowDAG() {
+    // Use default stages for initialization
+    workflowDAG = DEFAULT_WORKFLOW_STAGES;
+    console.log('[DAG] Default workflow stages loaded');
+}
+
+/**
+ * Get current stage info
+ */
+function getCurrentStageInfo() {
+    return workflowDAG[currentWorkflowStage] || workflowDAG.init;
+}
+
+/**
+ * Move to next stage in DAG
+ */
+async function progressToNextStage() {
+    const currentStage = getCurrentStageInfo();
+
+    if (!currentStage.nextStage) {
+        console.log('[DAG] No next stage defined');
+        return false;
+    }
+
+    const nextStage = currentStage.nextStage;
+    console.log(`[DAG] Progressing: ${currentWorkflowStage} → ${nextStage}`);
+
+    currentWorkflowStage = nextStage;
+    const stageInfo = getCurrentStageInfo();
+
+    // Show stage transition
+    addMessage(`➡️ Moving to: ${stageInfo.name}`, 'system');
+
+    // Execute stage action
+    if (stageInfo.action) {
+        const actionResult = stageInfo.action({ intent: autoNegotiationIntent });
+
+        if (actionResult.prompt) {
+            addMessage(actionResult.prompt, 'system');
+        }
+
+        // Auto-run single command if specified
+        if (actionResult.command && actionResult.autoRun) {
+            console.log(`[DAG] Auto-running: ${actionResult.command}`);
+            await new Promise(resolve => setTimeout(resolve, 500));
+            await queueOrExecuteCommand(actionResult.command);
+            return true;
+        }
+
+        // Auto-run multiple commands if specified (e.g., generate_agents)
+        if (actionResult.commands && actionResult.autoRun && Array.isArray(actionResult.commands)) {
+            console.log(`[DAG] Auto-running ${actionResult.commands.length} commands`);
+
+            // For generate_agents stage, filter out commands for agents that already exist
+            let commandsToRun = actionResult.commands;
+            if (currentWorkflowStage === 'generate_agents' && existingAgents.length > 0) {
+                commandsToRun = filterGenerateCommands(actionResult.commands);
+                if (commandsToRun.length === 0) {
+                    addMessage('✓ All planned agents already exist - skipping generation', 'system');
+                    return true;
+                }
+            }
+
+            for (const cmd of commandsToRun) {
+                await new Promise(resolve => setTimeout(resolve, 300));
+                await queueOrExecuteCommand(cmd);
+            }
+            return true;
+        }
+
+        // If requires user input, prompt for it
+        if (actionResult.requiresUserInput) {
+            isProcessing = false;
+            addMessage(`💬 Your input needed: ${actionResult.prompt}`, 'system');
+            document.getElementById('chatInput').focus();
+            return false;
+        }
+    }
+
+    return true;
+}
+
+/**
+ * Check if we should auto-progress to next stage
+ */
+async function checkAndAutoProgress() {
+    const currentStage = getCurrentStageInfo();
+
+    // If stage has autoProgress enabled and no next action is running
+    if (currentStage.autoProgress && !isProcessing) {
+        console.log(`[DAG] Auto-progressing from ${currentWorkflowStage}`);
+        await progressToNextStage();
+    }
+}
+
+/**
+ * Add command to input queue if processing, otherwise execute immediately
+ */
+function queueOrExecuteCommand(command) {
+    if (isProcessing) {
+        console.log(`[Queue] Added to input queue: ${command}`);
+        inputQueue.push(command);
+        addMessage(`📋 Queued: ${command}`, 'system');
+    } else {
+        // Execute immediately
+        document.getElementById('chatInput').value = command;
+        sendCommand();
+    }
+}
+
+/**
+ * Process next queued input
+ */
+async function processNextQueuedInput() {
+    if (inputQueue.length > 0) {
+        const nextCommand = inputQueue.shift();
+        console.log(`[Queue] Processing queued command: ${nextCommand}`);
+        addMessage(`▶️ Auto-executing: ${nextCommand}`, 'system');
+
+        // Small delay to ensure UI updates
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        document.getElementById('chatInput').value = nextCommand;
+        await sendCommand();
+    }
+}
+
+/**
+ * Analyze Claude's response for task completion and auto-continue decision
+ */
+function analyzeClaudeResponse(message) {
+    const lowerMsg = message.toLowerCase();
+
+    // Check if task is handed back to user
+    const handedToUser = /(?:your turn|ready for|waiting for|awaiting|user|you can|try|next step|proceed with)/i.test(message);
+
+    // Check for self-evident next steps the AI should continue with
+    const shouldAutoContinue = /(?:let me|i'll|now|next|then|proceeding|running|executing)/i.test(message) &&
+                               !handedToUser;
+
+    // Check for explicit continuation markers
+    const hasContMsg = /continuing|moving on|next up|generating|building|running/i.test(message);
+
+    return {
+        handedToUser,
+        shouldAutoContinue: shouldAutoContinue || hasContMsg,
+        requiresUserInput: handedToUser && lowerMsg.includes('?'),
+        isComplete: /complete|done|finished|success|ready/i.test(message) && handedToUser
+    };
+}
+
+/**
+ * Parse check_agents output to extract existing agent file names
+ */
+function parseExistingAgents(output) {
+    console.log('[Agents] Parsing existing agents from ls output');
+
+    existingAgents = [];
+
+    // Extract .py files from ls output
+    const lines = output.split('\n');
+    lines.forEach(line => {
+        const match = line.match(/(\w+(?:_\w+)*_agent\.py)$/);
+        if (match) {
+            const filename = match[1];
+            const agentName = filename.replace(/_agent\.py$/, '').replace(/_/g, ' ');
+            existingAgents.push({
+                filename: filename,
+                name: agentName,
+                baseName: filename.replace(/.py$/, '')
+            });
+        }
+    });
+
+    console.log(`[Agents] Found ${existingAgents.length} existing agents:`, existingAgents.map(a => a.filename));
+    return existingAgents;
+}
+
+/**
+ * Check if an agent matches an existing one (case-insensitive, name normalization)
+ */
+function agentAlreadyExists(plannedAgentName) {
+    const normalized = plannedAgentName.toLowerCase().replace(/\s+/g, '_');
+
+    return existingAgents.some(existing => {
+        // Check multiple naming patterns
+        const existingBase = existing.baseName.toLowerCase();
+        return (
+            existingBase === normalized ||
+            existingBase.includes(normalized) ||
+            normalized.includes(existingBase) ||
+            existingBase.includes(normalized.replace(/_agent$/, '')) ||
+            normalized.replace(/_agent$/, '') === existingBase.replace(/_agent$/, '')
+        );
+    });
+}
+
+/**
+ * Filter generate_agents commands to only include truly missing agents
+ */
+function filterGenerateCommands(commands) {
+    if (!Array.isArray(commands)) return commands;
+
+    console.log('[Agents] Filtering generate commands - checking against existing agents');
+
+    const filtered = commands.filter(cmd => {
+        // Extract agent name from "graphbus generate agent AgentName" command
+        const match = cmd.match(/graphbus generate agent (\w+)/i);
+        if (!match) return true; // Keep if we can't parse
+
+        const agentName = match[1];
+
+        if (agentAlreadyExists(agentName)) {
+            console.log(`[Agents] SKIPPING generation of ${agentName} - already exists`);
+            return false; // Filter out - agent already exists
+        }
+
+        console.log(`[Agents] WILL generate ${agentName} - not found in existing agents`);
+        return true; // Keep - need to generate
+    });
+
+    return filtered;
+}
+
+/**
+ * Cancel current flow - clear processing state and queues
+ */
+function cancelFlow() {
+    console.log('[Flow] Cancelling current flow');
+    isProcessing = false;
+    inputQueue = [];
+    document.getElementById('chatInput').value = '';
+    addMessage('🛑 Flow cancelled. Ready for new input.', 'system');
+}
+
+/**
+ * Load command history from localStorage
+ */
+function loadCommandHistory() {
+    try {
+        const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
+        if (stored) {
+            commandHistory = JSON.parse(stored);
+            console.log(`Loaded ${commandHistory.length} commands from history`);
+        }
+    } catch (error) {
+        console.error('Failed to load command history:', error);
+    }
+}
+
+/**
+ * Save command history to localStorage
+ */
+function saveCommandHistory() {
+    try {
+        // Keep only recent commands
+        const recentHistory = commandHistory.slice(-MAX_HISTORY_SIZE);
+        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(recentHistory));
+    } catch (error) {
+        console.error('Failed to save command history:', error);
+    }
+}
+
+/**
+ * Get autocomplete suggestions
+ */
+function getAutocompleteSuggestions(input) {
+    const suggestions = [];
+    const lowerInput = input.toLowerCase();
+
+    // GraphBus commands
+    const graphbusCommands = [
+        'graphbus build agents/ --enable-agents',
+        'graphbus run .graphbus',
+        'graphbus negotiate .graphbus --intent "',
+        'graphbus inspect .graphbus',
+        'graphbus generate agent ',
+        'graphbus list-templates',
+        'graphbus validate agents/',
+        'graphbus dashboard .graphbus'
+    ];
+
+    // Add matching GraphBus commands
+    graphbusCommands.forEach(cmd => {
+        if (cmd.toLowerCase().includes(lowerInput)) {
+            suggestions.push(cmd);
+        }
+    });
+
+    // Add matching previous commands
+    commandHistory.forEach(cmd => {
+        if (cmd.toLowerCase().includes(lowerInput) && !suggestions.includes(cmd)) {
+            suggestions.push(cmd);
+        }
+    });
+
+    return suggestions.slice(0, 5); // Top 5 suggestions
+}
+
+/**
+ * Show autocomplete suggestions
+ */
+function showAutocomplete(input, suggestions) {
+    let autocompleteList = document.getElementById('autocompleteList');
+
+    if (!suggestions || suggestions.length === 0) {
+        if (autocompleteList) {
+            autocompleteList.remove();
+        }
+        return;
+    }
+
+    // Create or reuse autocomplete list
+    if (!autocompleteList) {
+        autocompleteList = document.createElement('ul');
+        autocompleteList.id = 'autocompleteList';
+        autocompleteList.style.cssText = `
+            position: absolute;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            border-radius: 0;
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+            font-size: 12px;
+            z-index: 1000;
+            width: 100%;
+            bottom: 100%;
+        `;
+        const chatInput = document.getElementById('chatInput');
+        chatInput.parentElement.style.position = 'relative';
+        chatInput.parentElement.insertBefore(autocompleteList, chatInput);
+    }
+
+    // Update autocomplete list
+    autocompleteList.innerHTML = '';
+    suggestions.forEach((suggestion, index) => {
+        const li = document.createElement('li');
+        li.style.cssText = `
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #2a2a2a;
+            color: #a78bfa;
+        `;
+        li.textContent = suggestion;
+        li.addEventListener('click', () => {
+            document.getElementById('chatInput').value = suggestion;
+            autocompleteList.remove();
+            autocompleteIndex = -1;
+        });
+        li.addEventListener('mouseover', () => {
+            li.style.background = '#2a2a2a';
+        });
+        li.addEventListener('mouseout', () => {
+            li.style.background = 'transparent';
+        });
+        autocompleteList.appendChild(li);
+    });
+}
+
+// WebSocket state
+let wsConnected = false;
+let currentQuestionId = null;
+let ws = null;
+let wsReconnectAttempts = 0;
+const wsMaxReconnectAttempts = 10;
+let wsReconnectDelay = 1000;
+
+// Initialize WebSocket connection
+function initializeWebSocket() {
+    connectWebSocket();
+}
+
+// Connect to internal WebSocket server
+function connectWebSocket() {
+    try {
+        console.log('Connecting to internal WebSocket server...');
+        ws = new WebSocket('ws://localhost:8765');
+
+        ws.onopen = () => {
+            console.log('✅ WebSocket connected to internal server');
+            wsConnected = true;
+            wsReconnectAttempts = 0;
+            wsReconnectDelay = 1000;
+            updateWSConnectionStatus(true);
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const message = JSON.parse(event.data);
+                handleWebSocketMessage(message);
+            } catch (error) {
+                console.error('Failed to parse WebSocket message:', error);
+            }
+        };
+
+        ws.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            addMessage(`❌ Connection error: ${error.message || 'Unknown error'}`, 'system');
+        };
+
+        ws.onclose = () => {
+            console.log('❌ WebSocket disconnected from internal server');
+            wsConnected = false;
+            updateWSConnectionStatus(false);
+            attemptReconnect();
+        };
+    } catch (error) {
+        console.error('Error initializing WebSocket:', error);
+        updateWSConnectionStatus(false);
+    }
+}
+
+// Handle incoming WebSocket messages
+function handleWebSocketMessage(message) {
+    const { type, data } = message;
+    console.log('[WebSocket] Received:', type);
+
+    switch (type) {
+        case 'agent_message':
+            {
+                const { agent, text, metadata, timestamp } = data;
+                const formattedMessage = `🤖 ${agent}: ${text}`;
+                addMessage(formattedMessage, 'assistant');
+
+                // Also send to Claude for context
+                if (workflowState.claudeInitialized) {
+                    window.graphbus.claudeAddSystemMessage(`Agent message from ${agent}: ${text}`);
+                }
+            }
+            break;
+
+        case 'progress':
+            {
+                const { current, total, message: progressMsg, percent } = data;
+                const msg = progressMsg || `Progress: ${current}/${total} (${percent}%)`;
+                addMessage(`📊 ${msg}`, 'system');
+            }
+            break;
+
+        case 'question':
+            {
+                const { question_id, question, options, context } = data;
+                currentQuestionId = question_id;
+
+                // Format options for display
+                let questionText = question;
+                if (context) {
+                    questionText = `${context}\n\n${question}`;
+                }
+                if (options && options.length > 0) {
+                    questionText += '\n\nOptions:';
+                    options.forEach((opt, i) => {
+                        questionText += `\n${i + 1}. ${opt}`;
+                    });
+                }
+
+                showPromptModal(questionText);
+            }
+            break;
+
+        case 'error':
+            {
+                const errorMsg = data.message || 'Unknown error';
+                addMessage(`❌ Error: ${errorMsg}`, 'system');
+                console.error('WebSocket error:', data);
+            }
+            break;
+
+        case 'result':
+            {
+                addMessage(`✅ Operation completed successfully`, 'system');
+                console.log('WebSocket result:', data);
+            }
+            break;
+
+        default:
+            console.warn(`Unknown message type: ${type}`);
+    }
+}
+
+// Attempt to reconnect with exponential backoff
+function attemptReconnect() {
+    if (wsReconnectAttempts >= wsMaxReconnectAttempts) {
+        console.error('Max reconnection attempts reached');
+        addMessage('⚠️ Failed to reconnect to WebSocket server after multiple attempts', 'system');
+        return;
+    }
+
+    wsReconnectAttempts++;
+    const delay = wsReconnectDelay * Math.pow(2, wsReconnectAttempts - 1);
+
+    console.log(`Attempting to reconnect (${wsReconnectAttempts}/${wsMaxReconnectAttempts}) in ${delay}ms...`);
+
+    setTimeout(() => {
+        connectWebSocket();
+    }, delay);
+}
+
+// Send message through WebSocket
+function wsSendMessage(text, metadata = {}) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        const message = {
+            type: 'user_message',
+            data: {
+                text: text,
+                metadata: metadata,
+                timestamp: Date.now()
+            }
+        };
+        ws.send(JSON.stringify(message));
+    } else {
+        console.warn('WebSocket not connected, cannot send message');
+    }
+}
+
+// Send answer to question through WebSocket
+function wsSendAnswer(questionId, answer) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        const message = {
+            type: 'answer',
+            data: {
+                question_id: questionId,
+                answer: answer
+            }
+        };
+        ws.send(JSON.stringify(message));
+    } else {
+        console.warn('WebSocket not connected, cannot send answer');
+    }
+}
+
+// Update WebSocket connection status indicator
+function updateWSConnectionStatus(connected) {
+    const statusDot = document.getElementById('statusDot');
+    const statusLabel = document.getElementById('graphStatus');
+
+    if (connected) {
+        if (statusDot) {
+            statusDot.style.background = '#4ade80';
+            statusDot.title = 'Connected to GraphBus CLI';
+        }
+        if (statusLabel) {
+            statusLabel.textContent = 'CLI Connected';
+        }
+    } else {
+        if (statusDot) {
+            statusDot.style.background = '#888';
+            statusDot.title = 'Not connected to GraphBus CLI';
+        }
+        if (statusLabel) {
+            statusLabel.textContent = 'CLI Disconnected';
+        }
+    }
+}
+
 // Update system state display
 function updateSystemStateDisplay() {
     const phaseLabel = document.getElementById('workflowPhase');
@@ -750,6 +1653,19 @@ async function sendCommand() {
     const command = input.value.trim();
     if (!command) return;
 
+    // Set processing flag
+    isProcessing = true;
+
+    // Add to command history
+    commandHistory.push(command);
+    saveCommandHistory(); // Persist to localStorage
+    historyIndex = -1; // Reset history navigation
+    currentDraft = '';
+
+    // Clear autocomplete
+    const autocompleteList = document.getElementById('autocompleteList');
+    if (autocompleteList) autocompleteList.remove();
+
     addMessage(command, 'user');
     input.value = '';
 
@@ -787,11 +1703,81 @@ async function sendCommand() {
         }
 
         if (response.success) {
-            const { message, action, params } = response.result;
+            const { message, action, params, plan } = response.result;
 
-            // Show Claude's message
-            if (message) {
-                addMessage(message, 'assistant');
+            // Check for structured plan from Claude (plan-first workflow)
+            const structuredPlan = plan || parsePlanFromClaudeResponse(response.result);
+            if (structuredPlan) {
+                console.log('[Plan-First] Structured plan detected from Claude');
+
+                // Display the plan to user
+                displayStructuredPlan(structuredPlan);
+
+                // Convert plan to DAG stages
+                workflowPlan = createDAGFromPlan(structuredPlan);
+                workflowDAG = workflowPlan.dag;
+                currentWorkflowStage = 'init'; // Start from init stage
+                autoNegotiationIntent = structuredPlan.intent || '';
+
+                // Show Claude's message
+                if (message) {
+                    addMessage(message, 'assistant');
+                }
+
+                // Start execution of the plan
+                console.log('[Plan-First] Starting plan execution');
+                isProcessing = true;
+                await new Promise(resolve => setTimeout(resolve, 300));
+                await progressToNextStage();
+            } else {
+                // Traditional workflow (no structured plan)
+                // Show Claude's message
+                if (message) {
+                    addMessage(message, 'assistant');
+
+                    // Analyze Claude's response for task completion and auto-continue decision
+                    const analysis = analyzeClaudeResponse(message);
+                    console.log('[Loopback] Response analysis:', analysis);
+
+                    // Create context-aware DAG based on Claude's message
+                    const contextData = {
+                        currentStage: currentWorkflowStage,
+                        hasBuilt: workflowState.hasBuilt,
+                        isRunning: workflowState.isRunning,
+                        phase: workflowState.phase
+                    };
+                    workflowPlan = createWorkflowDAG(message, contextData);
+                    workflowDAG = workflowPlan.dag;
+
+                    // If task is handed back to user, mark processing as complete
+                    if (analysis.handedToUser) {
+                        console.log('[Loopback] Control handed to user - processing complete');
+                        isProcessing = false;
+
+                        // Auto-execute queued inputs if any
+                        if (inputQueue.length > 0) {
+                            console.log(`[Queue] ${inputQueue.length} commands queued, auto-executing...`);
+                            await new Promise(resolve => setTimeout(resolve, 500));
+                            await processNextQueuedInput();
+                        } else {
+                            // Prompt user for next action
+                            const stageInfo = getCurrentStageInfo();
+                            if (stageInfo.nextStage) {
+                                addMessage(`🎯 Next: ${stageInfo.nextStage}. What would you like to do?`, 'system');
+                            }
+                        }
+                    } else if (analysis.shouldAutoContinue) {
+                        // Claude indicated it will continue - show plan and auto-execute
+                        console.log('[Loopback] Auto-continue detected - executing DAG plan');
+                        displayWorkflowPlan(workflowPlan);
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                        await progressToNextStage();
+                    } else {
+                        // Check if we should auto-progress based on current stage
+                        console.log('[Loopback] Checking for auto-progression...');
+                        await checkAndAutoProgress();
+                    }
+                }
             }
 
             // Execute action if requested
@@ -809,9 +1795,13 @@ async function sendCommand() {
                 addMessage(`🔧 Please enter a valid API key in the Settings panel.`, 'system');
                 workflowState.phase = 'awaiting_api_key';
             }
+
+            // Mark processing as complete on error
+            isProcessing = false;
         }
     } catch (error) {
         addMessage(`Error: ${error.message}`, 'assistant');
+        isProcessing = false;
     }
 }
 
@@ -983,8 +1973,30 @@ async function checkForCompoundRequestContinuation() {
 
 // Execute shell command
 async function runShellCommand(command) {
-    // Use streaming for negotiation commands
+    // Track agent generation for auto-negotiation
+    if (command.includes('graphbus generate agent')) {
+        // Extract intent from recent conversation history
+        // Look back at the last few user messages to find the project description
+        const recentMessages = workflowState.conversationHistory.slice(-10);
+        for (let i = recentMessages.length - 1; i >= 0; i--) {
+            const msg = recentMessages[i];
+            if (msg.type === 'user' && msg.text && msg.text.length > 20) {
+                // This is likely the project description/intent
+                autoNegotiationIntent = msg.text;
+                pendingAutoNegotiation = true;
+                console.log('Auto-negotiation scheduled with intent:', autoNegotiationIntent);
+                break;
+            }
+        }
+    }
+
+    // Handle negotiation via WebSocket
     if (command.includes('graphbus negotiate')) {
+        return runNegotiationViaWebSocket(command);
+    }
+
+    // Use streaming for build commands
+    if (command.includes('graphbus build') && command.includes('--enable-agents')) {
         return runStreamingCommand(command);
     }
 
@@ -1004,6 +2016,11 @@ async function runShellCommand(command) {
 
             if (!stdout && !stderr) {
                 addMessage('✓ Completed', 'system');
+            }
+
+            // Parse existing agents if this was a check_agents command
+            if ((command.includes('ls -la agents/') || command.includes('graphbus inspect')) && stdout) {
+                parseExistingAgents(stdout);
             }
 
             const combinedOutput = [stdout, stderr].filter(x => x && x.trim()).join('\n');
@@ -1139,6 +2156,47 @@ async function handleNegotiationPR(command, output, messageElement) {
         if (messageElement) {
             messageElement.textContent += `\n✗ Error: ${error.message}\n`;
         }
+    }
+}
+
+// Run negotiation via WebSocket
+async function runNegotiationViaWebSocket(command) {
+    // Parse the negotiate command to extract intent and rounds
+    // Format: graphbus negotiate .graphbus --intent "..." --rounds N
+    const intentMatch = command.match(/--intent\s+"([^"]+)"/);
+    const roundsMatch = command.match(/--rounds\s+(\d+)/);
+    const artifactsDirMatch = command.match(/negotiate\s+(\S+)/);
+
+    const intent = intentMatch ? intentMatch[1] : 'User intent';
+    const rounds = roundsMatch ? parseInt(roundsMatch[1]) : 5;
+    const artifactsDir = artifactsDirMatch ? artifactsDirMatch[1] : '.graphbus';
+
+    addMessage(`🚀 Starting negotiation via WebSocket...`, 'system');
+    addMessage(`   Intent: ${intent}`, 'system');
+    addMessage(`   Rounds: ${rounds}`, 'system');
+
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        addMessage(`❌ WebSocket not connected`, 'system');
+        return;
+    }
+
+    // Send negotiation request through WebSocket
+    const negotiationMessage = {
+        type: 'negotiate',
+        data: {
+            intent: intent,
+            rounds: rounds,
+            artifactsDir: artifactsDir
+        }
+    };
+
+    try {
+        ws.send(JSON.stringify(negotiationMessage));
+        console.log('[Negotiation] Sent negotiation request via WebSocket');
+        addMessage(`📡 Sent negotiation request to server`, 'system');
+    } catch (error) {
+        console.error('Failed to send negotiation request:', error);
+        addMessage(`❌ Failed to send negotiation request: ${error.message}`, 'system');
     }
 }
 
@@ -1357,13 +2415,30 @@ async function runStreamingCommand(command) {
         window.graphbus.onCommandComplete(() => {});
         window.graphbus.onCommandError(() => {});
 
+        // Check if this was a build command and auto-negotiation is pending
+        if (command.includes('graphbus build') && command.includes('--enable-agents') && pendingAutoNegotiation) {
+            pendingAutoNegotiation = false; // Reset flag
+
+            // Automatically trigger negotiation with the stored intent
+            addMessage(`\n🤖 Build complete! Automatically running negotiation so agents can self-assess and improve...`, 'system');
+
+            const negotiateCommand = `graphbus negotiate .graphbus --intent "${autoNegotiationIntent}" --rounds 5`;
+
+            // Small delay to let UI update
+            setTimeout(async () => {
+                await runStreamingCommand(negotiateCommand);
+            }, 500);
+
+            return; // Don't proceed with other handlers yet
+        }
+
         // Check if negotiation resulted in commits and handle Git/PR workflow
         const commitMatch = fullOutput.match(/Total commits: (\d+)/);
         if (commitMatch && parseInt(commitMatch[1]) > 0) {
             await handleNegotiationPR(command, fullOutput, streamingMessageElement);
         }
 
-        await window.graphbus.claudeAddSystemMessage(`Negotiation completed. Output: ${fullOutput}`);
+        await window.graphbus.claudeAddSystemMessage(`Command completed. Output: ${fullOutput}`);
         setTimeout(() => checkForCompoundRequestContinuation(), 500);
     };
 
@@ -1373,10 +2448,17 @@ async function runStreamingCommand(command) {
         }
     };
 
+    // Prompt handler for interactive input
+    const promptHandler = (data) => {
+        const { question } = data;
+        showPromptModal(question);
+    };
+
     // Register handlers
     window.graphbus.onCommandOutput(outputHandler);
     window.graphbus.onCommandComplete(completeHandler);
     window.graphbus.onCommandError(errorHandler);
+    window.graphbus.onCommandPrompt(promptHandler);
 
     // Start streaming command
     try {
@@ -1810,10 +2892,18 @@ let currentNegotiationAgent = null;
 // State file viewer
 let currentStateFileContent = '';
 
-async function loadStateFile(filename) {
+async function loadStateFile(filename, event) {
     try {
+        // Ensure working directory is set
+        if (!workingDirectory) {
+            document.getElementById('stateFileContent').textContent = 'Error: No working directory set. Please change to a GraphBus project directory.';
+            return;
+        }
+
         const graphbusDir = `${workingDirectory}/.graphbus`;
         const filePath = `${graphbusDir}/${filename}`;
+
+        console.log('Loading state file:', filePath);
 
         // Read file using command
         const result = await window.graphbus.runCommand(`cat "${filePath}"`);
@@ -1841,13 +2931,15 @@ async function loadStateFile(filename) {
             document.querySelectorAll('.state-file-item').forEach(item => {
                 item.classList.remove('active');
             });
-            event.target.classList.add('active');
+            if (event && event.target) {
+                event.target.classList.add('active');
+            }
         } else {
-            document.getElementById('stateFileContent').textContent = `Error: File not found or empty\n\n${result.error || 'Unknown error'}`;
+            document.getElementById('stateFileContent').textContent = `Error: File not found or empty\n\nPath: ${filePath}\nWorking Dir: ${workingDirectory}\n\n${result.error || result.stderr || 'Unknown error'}`;
             document.getElementById('copyStateBtn').style.display = 'none';
         }
     } catch (error) {
-        document.getElementById('stateFileContent').textContent = `Error loading file: ${error.message}`;
+        document.getElementById('stateFileContent').textContent = `Error loading file: ${error.message}\n\nPath: ${filePath}\nWorking Dir: ${workingDirectory}`;
         document.getElementById('copyStateBtn').style.display = 'none';
     }
 }
@@ -2291,10 +3383,87 @@ function cycleView(direction = 1) {
 
 // Keyboard shortcuts
 document.addEventListener('DOMContentLoaded', async () => {
+    // Initialize workflow DAG
+    initializeWorkflowDAG();
+
+    // Load command history from localStorage
+    loadCommandHistory();
+
     const chatInput = document.getElementById('chatInput');
+
+    // Send command on Enter
     chatInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
             sendCommand();
+        }
+    });
+
+    // Autocomplete on input
+    chatInput.addEventListener('input', (e) => {
+        const input = e.target.value.trim();
+        if (input.length > 2) {
+            const suggestions = getAutocompleteSuggestions(input);
+            showAutocomplete(input, suggestions);
+        } else {
+            const autocompleteList = document.getElementById('autocompleteList');
+            if (autocompleteList) {
+                autocompleteList.remove();
+            }
+        }
+    });
+
+    // Arrow key navigation for command history & autocomplete
+    chatInput.addEventListener('keydown', (e) => {
+        const autocompleteList = document.getElementById('autocompleteList');
+
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+
+            if (commandHistory.length === 0) return;
+
+            // Save current input when first pressing up
+            if (historyIndex === -1) {
+                currentDraft = chatInput.value;
+                historyIndex = commandHistory.length;
+            }
+
+            // Navigate up in history
+            if (historyIndex > 0) {
+                historyIndex--;
+                chatInput.value = commandHistory[historyIndex];
+                if (autocompleteList) autocompleteList.remove();
+            }
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+
+            if (historyIndex === -1) return; // Not navigating history
+
+            // Navigate down in history
+            historyIndex++;
+
+            if (historyIndex >= commandHistory.length) {
+                // Reached the bottom, restore draft
+                historyIndex = -1;
+                chatInput.value = currentDraft;
+            } else {
+                chatInput.value = commandHistory[historyIndex];
+            }
+            if (autocompleteList) autocompleteList.remove();
+        } else if (e.key === 'Tab') {
+            // Tab to accept autocomplete suggestion
+            e.preventDefault();
+            if (autocompleteList && autocompleteList.children.length > 0) {
+                const firstItem = autocompleteList.children[0];
+                chatInput.value = firstItem.textContent;
+                autocompleteList.remove();
+                historyIndex = -1;
+            }
+        } else if (e.key !== 'Enter') {
+            // Reset history navigation when typing
+            if (historyIndex !== -1) {
+                historyIndex = -1;
+                currentDraft = '';
+            }
         }
     });
 
@@ -2325,9 +3494,29 @@ document.addEventListener('DOMContentLoaded', async () => {
             switchView(view.name);
         }
 
-        // Escape to focus chat input
+        // Escape key handling
         if (e.key === 'Escape') {
-            chatInput.focus();
+            const now = Date.now();
+            const timeSinceLastEsc = now - lastEscapeTime;
+
+            if (timeSinceLastEsc < DOUBLE_ESC_THRESHOLD) {
+                // Double press detected - cancel flow
+                e.preventDefault();
+                cancelFlow();
+                lastEscapeTime = 0;
+            } else {
+                // Single press - clear input or focus
+                if (chatInput.value.trim()) {
+                    // Clear input if it has content
+                    chatInput.value = '';
+                    const autocompleteList = document.getElementById('autocompleteList');
+                    if (autocompleteList) autocompleteList.remove();
+                } else {
+                    // Focus chat input
+                    chatInput.focus();
+                }
+                lastEscapeTime = now;
+            }
         }
     });
 
@@ -2353,6 +3542,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Initialize Claude first (needed for project creation)
     const claudeReady = await initializeClaude();
+
+    // Initialize WebSocket event listeners
+    initializeWebSocket();
 
     // Check if there's an existing project or show welcome screen
     const hasExistingProject = await checkForExistingProject();
@@ -2702,6 +3894,318 @@ async function checkForExistingProject() {
 
     // Has existing project - load it
     return true;
+}
+
+// ===========================
+// PR Review Functions
+// ===========================
+
+let currentSelectedPR = null;
+
+// Load and display PR list
+async function refreshPRList() {
+    try {
+        const tracking = await window.graphbus.prLoadTracking();
+
+        if (!tracking.success || !tracking.result || !tracking.result.prs || tracking.result.prs.length === 0) {
+            // Show empty state
+            document.getElementById('prList').innerHTML = `
+                <div class="empty-state">
+                    <div style="font-size: 48px; margin-bottom: 12px;">📭</div>
+                    <p>No pull requests yet</p>
+                    <p style="font-size: 12px; color: #888;">Run a negotiation to create your first PR</p>
+                </div>
+            `;
+            return;
+        }
+
+        const prList = document.getElementById('prList');
+        prList.innerHTML = '';
+
+        // Display PRs (most recent first)
+        const prs = tracking.result.prs.reverse();
+        prs.forEach((pr, index) => {
+            const prItem = document.createElement('div');
+            prItem.className = 'pr-item';
+            if (index === 0 && !currentSelectedPR) {
+                prItem.classList.add('active');
+            }
+            prItem.onclick = () => selectPR(pr);
+
+            const title = `GraphBus: ${pr.intent}`;
+            const timeAgo = formatTimeAgo(pr.timestamp);
+
+            prItem.innerHTML = `
+                <div class="pr-item-title">${title}</div>
+                <div class="pr-item-meta">
+                    <div>PR #${pr.prNumber || 'N/A'}</div>
+                    <div>🌿 ${pr.branchName}</div>
+                    <div>⏱️ ${timeAgo}</div>
+                </div>
+                <div class="pr-item-intent">"${pr.intent}"</div>
+            `;
+
+            prList.appendChild(prItem);
+        });
+
+        // Auto-select first PR if none selected
+        if (!currentSelectedPR && prs.length > 0) {
+            selectPR(prs[0]);
+        }
+
+    } catch (error) {
+        console.error('Error loading PR list:', error);
+        addMessage(`❌ Failed to load PR list: ${error.message}`, 'system');
+    }
+}
+
+// Select and display PR details
+async function selectPR(prData) {
+    currentSelectedPR = prData;
+
+    // Update active state in list
+    document.querySelectorAll('.pr-item').forEach(item => item.classList.remove('active'));
+    event.currentTarget?.classList.add('active');
+
+    // Hide empty state, show content
+    document.getElementById('prDetailsEmpty').style.display = 'none';
+    document.getElementById('prDetailsContent').style.display = 'block';
+
+    // Populate PR details
+    document.getElementById('prTitle').textContent = `GraphBus: ${prData.intent}`;
+    document.getElementById('prBranch').textContent = prData.branchName;
+    document.getElementById('prStatus').textContent = 'open';
+    document.getElementById('prLink').href = prData.prUrl;
+    document.getElementById('prCommits').textContent = prData.commitCount || 0;
+    document.getElementById('prNegotiationId').textContent = prData.negotiationId.substring(0, 8);
+    document.getElementById('prIntent').textContent = prData.intent;
+
+    // Load comments
+    await refreshPRComments();
+}
+
+// Refresh PR comments from GitHub
+async function refreshPRComments() {
+    if (!currentSelectedPR) return;
+
+    const commentsContainer = document.getElementById('prComments');
+    commentsContainer.innerHTML = '<div class="loading">Loading comments...</div>';
+
+    try {
+        const result = await window.graphbus.githubGetPRComments(currentSelectedPR.prNumber);
+
+        if (!result.success) {
+            commentsContainer.innerHTML = `<div class="pr-comment"><div class="pr-comment-body" style="color: #ef4444;">❌ Failed to load comments: ${result.error}</div></div>`;
+            return;
+        }
+
+        const comments = result.comments || [];
+
+        if (comments.length === 0) {
+            commentsContainer.innerHTML = '<div style="text-align: center; color: #888; padding: 20px;">No comments yet</div>';
+            return;
+        }
+
+        commentsContainer.innerHTML = '';
+        comments.forEach(comment => {
+            const commentEl = document.createElement('div');
+            commentEl.className = 'pr-comment';
+
+            const timeAgo = formatTimeAgo(new Date(comment.created_at).getTime());
+
+            commentEl.innerHTML = `
+                <div class="pr-comment-header">
+                    <span class="pr-comment-author">@${comment.user.login}</span>
+                    <span class="pr-comment-time">${timeAgo}</span>
+                </div>
+                <div class="pr-comment-body">${comment.body}</div>
+            `;
+
+            commentsContainer.appendChild(commentEl);
+        });
+
+    } catch (error) {
+        console.error('Error loading comments:', error);
+        commentsContainer.innerHTML = `<div class="pr-comment"><div class="pr-comment-body" style="color: #ef4444;">❌ Error: ${error.message}</div></div>`;
+    }
+}
+
+// Post comment to GitHub PR
+async function postGitHubComment() {
+    if (!currentSelectedPR) {
+        addMessage('❌ No PR selected', 'system');
+        return;
+    }
+
+    const feedback = document.getElementById('prFeedbackInput').value.trim();
+    if (!feedback) {
+        addMessage('❌ Please enter feedback before posting', 'system');
+        return;
+    }
+
+    addMessage('💬 Posting comment to GitHub...', 'system');
+
+    try {
+        const result = await window.graphbus.runCommand(
+            `gh pr comment ${currentSelectedPR.prNumber} --body "${feedback.replace(/"/g, '\\"')}"`
+        );
+
+        if (result.success) {
+            addMessage('✅ Comment posted successfully!', 'system');
+            document.getElementById('prFeedbackInput').value = '';
+
+            // Refresh comments to show new one
+            setTimeout(() => refreshPRComments(), 1000);
+        } else {
+            addMessage(`❌ Failed to post comment: ${result.error}`, 'system');
+        }
+    } catch (error) {
+        console.error('Error posting comment:', error);
+        addMessage(`❌ Error: ${error.message}`, 'system');
+    }
+}
+
+// Continue negotiation from PR feedback
+async function continueNegotiationFromPR() {
+    if (!currentSelectedPR) {
+        addMessage('❌ No PR selected', 'system');
+        return;
+    }
+
+    const feedback = document.getElementById('prFeedbackInput').value.trim();
+    if (!feedback) {
+        addMessage('❌ Please enter feedback before continuing negotiation', 'system');
+        return;
+    }
+
+    // Post comment first
+    await postGitHubComment();
+
+    // Switch to conversation view
+    switchView('conversation');
+
+    // Prepare negotiation with PR context
+    addMessage(`🔄 Starting negotiation round with PR context...`, 'system');
+    addMessage(`📋 Original intent: "${currentSelectedPR.intent}"`, 'system');
+    addMessage(`💬 New feedback: "${feedback}"`, 'system');
+
+    try {
+        // Retrieve all PR comments for context
+        const commentsResult = await window.graphbus.githubGetPRComments(currentSelectedPR.prNumber);
+        let prContext = `Previous negotiation PR #${currentSelectedPR.prNumber}\nOriginal intent: ${currentSelectedPR.intent}\n\n`;
+
+        if (commentsResult.success && commentsResult.comments) {
+            prContext += 'PR Discussion:\n';
+            commentsResult.comments.forEach(c => {
+                prContext += `- @${c.user.login}: ${c.body}\n`;
+            });
+        }
+
+        // Build negotiation command with context and feedback
+        const contextualIntent = `${currentSelectedPR.intent}\n\nContext from PR #${currentSelectedPR.prNumber}:\n${prContext}\n\nNew guidance: ${feedback}`;
+
+        const rounds = 5;
+        const command = `graphbus negotiate .graphbus --intent "${contextualIntent.replace(/"/g, '\\"')}" --rounds ${rounds}`;
+
+        addMessage(`🚀 Running: graphbus negotiate with updated intent...`, 'system');
+
+        // Execute negotiation with streaming
+        await runStreamingCommand(command);
+
+    } catch (error) {
+        console.error('Error continuing negotiation:', error);
+        addMessage(`❌ Error: ${error.message}`, 'system');
+    }
+}
+
+// Format timestamp as "X ago"
+function formatTimeAgo(timestamp) {
+    const now = Date.now();
+    const diff = now - timestamp;
+
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+
+    if (days > 0) return `${days}d ago`;
+    if (hours > 0) return `${hours}h ago`;
+    if (minutes > 0) return `${minutes}m ago`;
+    return 'just now';
+}
+
+// Update switchView to load PR list when switching to PR review
+const originalSwitchView = switchView;
+switchView = function(viewName) {
+    originalSwitchView(viewName);
+
+    if (viewName === 'pr-review') {
+        refreshPRList();
+    }
+};
+
+// Interactive prompt modal functions
+function showPromptModal(question) {
+    const modal = document.getElementById('promptModal');
+    const questionEl = document.getElementById('promptQuestion');
+    const inputEl = document.getElementById('promptInput');
+
+    questionEl.textContent = question;
+    inputEl.value = '';
+    modal.style.display = 'block';
+
+    // Focus input and handle Enter key
+    setTimeout(() => {
+        inputEl.focus();
+        inputEl.onkeypress = (e) => {
+            if (e.key === 'Enter') {
+                submitPromptResponse();
+            }
+        };
+    }, 100);
+}
+
+async function submitPromptResponse() {
+    const modal = document.getElementById('promptModal');
+    const inputEl = document.getElementById('promptInput');
+    const response = inputEl.value.trim();
+
+    if (!response) {
+        alert('Please enter a response');
+        return;
+    }
+
+    // Hide modal and clear input
+    modal.style.display = 'none';
+    inputEl.value = '';
+
+    // If this is a WebSocket question, send as answer
+    if (currentQuestionId) {
+        try {
+            wsSendAnswer(currentQuestionId, response);
+            console.log('Sent WebSocket answer:', currentQuestionId, response);
+            addMessage(`✓ You answered: ${response}`, 'user');
+            currentQuestionId = null; // Clear the question ID
+        } catch (error) {
+            console.error('Error sending WebSocket answer:', error);
+            addMessage(`⚠️ Error: ${error.message}`, 'system');
+            currentQuestionId = null;
+        }
+    }
+    // Otherwise send as stdin (for legacy CLI prompts)
+    else {
+        try {
+            const result = await window.graphbus.sendStdin(response);
+            if (result.success) {
+                console.log('Sent response to process stdin:', response);
+            } else {
+                console.error('Failed to send response to stdin:', result.error);
+                addMessage(`⚠️ Failed to send response: ${result.error}`, 'system');
+            }
+        } catch (error) {
+            console.error('Error sending response to stdin:', error);
+            addMessage(`⚠️ Error: ${error.message}`, 'system');
+        }
+    }
 }
 
 console.log('GraphBus UI Renderer loaded');

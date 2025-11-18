@@ -5,10 +5,12 @@ const fs = require('fs');
 const os = require('os');
 const PythonBridge = require('./python_bridge');
 const ClaudeService = require('./claude_service');
+const InternalWebSocketServer = require('./internal_server');
 
 let mainWindow;
 let pythonBridge;
 let claudeService;
+let internalServer;
 
 // Parse working directory from command line arguments
 // Supports: npm start -- /path/to/dir  OR  npm start -- --dir=/path/to/dir
@@ -346,7 +348,184 @@ function createWindow() {
     });
 }
 
-app.whenReady().then(() => {
+/**
+ * Handle negotiation via WebSocket
+ */
+async function handleWebSocketNegotiation(data) {
+    const { intent, rounds = 5, artifactsDir = '.graphbus' } = data;
+
+    console.log(`[Negotiation] Starting WebSocket-based negotiation with intent: ${intent}`);
+
+    if (!internalServer) {
+        console.error('[Negotiation] Internal server not available');
+        internalServer.broadcast({
+            type: 'error',
+            data: { message: 'Internal server not available' }
+        });
+        return;
+    }
+
+    // Send start message
+    internalServer.broadcast({
+        type: 'progress',
+        data: {
+            message: `🤝 Starting negotiation with intent: ${intent}`,
+            current: 0,
+            total: 100,
+            percent: 0
+        }
+    });
+
+    try {
+        const { spawn } = require('child_process');
+
+        // Run negotiation command
+        const command = `graphbus negotiate ${artifactsDir} --intent "${intent}" --rounds ${rounds}`;
+        console.log(`[Negotiation] Running: ${command}`);
+
+        const proc = spawn('sh', ['-c', command], {
+            cwd: workingDirectory,
+            stdio: ['pipe', 'pipe', 'pipe']
+        });
+
+        let stdoutBuffer = '';
+        let stderrBuffer = '';
+        let answerBuffer = {}; // Store pending answers
+        let questionIdCounter = 0;
+
+        // Handle stdout
+        proc.stdout.on('data', (data) => {
+            const text = data.toString();
+            stdoutBuffer += text;
+            console.log(`[Negotiation Output] ${text}`);
+
+            // Broadcast progress/output to clients
+            internalServer.broadcast({
+                type: 'agent_message',
+                data: {
+                    agent: 'GraphBus',
+                    text: text.trim(),
+                    timestamp: Date.now()
+                }
+            });
+
+            // Check for question patterns (basic pattern matching)
+            checkForQuestions(text, stdoutBuffer);
+        });
+
+        // Handle stderr
+        proc.stderr.on('data', (data) => {
+            const text = data.toString();
+            stderrBuffer += text;
+            console.error(`[Negotiation Error] ${text}`);
+
+            internalServer.broadcast({
+                type: 'progress',
+                data: { message: text.trim() }
+            });
+        });
+
+        // Handle completion
+        proc.on('close', (code) => {
+            console.log(`[Negotiation] Process exited with code ${code}`);
+
+            if (code === 0) {
+                internalServer.broadcast({
+                    type: 'result',
+                    data: {
+                        message: 'Negotiation completed successfully',
+                        stdout: stdoutBuffer
+                    }
+                });
+            } else {
+                internalServer.broadcast({
+                    type: 'error',
+                    data: {
+                        message: `Negotiation failed with code ${code}`,
+                        stderr: stderrBuffer
+                    }
+                });
+            }
+        });
+
+        // Process stdin for answers
+        proc.stdin.on('ready', () => {
+            console.log('[Negotiation] Process stdin ready');
+        });
+
+    } catch (error) {
+        console.error('[Negotiation] Error:', error);
+        internalServer.broadcast({
+            type: 'error',
+            data: { message: `Negotiation error: ${error.message}` }
+        });
+    }
+}
+
+/**
+ * Check for question patterns in output and send as WebSocket messages
+ */
+function checkForQuestions(text, buffer) {
+    // Simple question detection - looks for common patterns
+    const questionPatterns = [
+        /^(.+?)\?(?:\s|$)/m,  // Ends with ?
+        /^(Select|Choose|Enter|Pick|Answer)\s*:\s*(.+?)$/m,  // Selection prompts
+        /^\s*(y\/n|yes\/no)\s*\?/im  // Y/N questions
+    ];
+
+    for (const pattern of questionPatterns) {
+        const match = buffer.match(pattern);
+        if (match) {
+            const questionId = `q_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            const questionText = match[1] || match[0];
+
+            console.log(`[Negotiation] Detected question: ${questionText}`);
+
+            internalServer.broadcast({
+                type: 'question',
+                data: {
+                    question_id: questionId,
+                    question: questionText,
+                    context: 'Agent negotiation',
+                    options: []
+                }
+            });
+
+            // Clear buffer after sending question
+            buffer = buffer.substring(match.index + match[0].length);
+        }
+    }
+}
+
+/**
+ * Start the internal WebSocket server
+ */
+async function startInternalServer() {
+    return new Promise((resolve) => {
+        try {
+            console.log('Starting internal WebSocket server...');
+            internalServer = new InternalWebSocketServer(8765);
+
+            internalServer.start()
+                .then(() => {
+                    console.log('✓ Internal WebSocket server started successfully');
+                    resolve();
+                })
+                .catch((error) => {
+                    console.error('Failed to start internal WebSocket server:', error);
+                    resolve(); // Continue anyway
+                });
+        } catch (error) {
+            console.error('Error initializing internal WebSocket server:', error);
+            resolve(); // Continue anyway
+        }
+    });
+}
+
+app.whenReady().then(async () => {
+    // Start internal WebSocket server
+    await startInternalServer();
+
     // Initialize Python bridge
     pythonBridge = new PythonBridge();
 
@@ -364,6 +543,28 @@ app.whenReady().then(() => {
         }
     }
 
+    // Set up internal server message handling
+    if (internalServer) {
+        internalServer.on('message', ({ ws, message }) => {
+            // Handle messages from connected clients
+            console.log(`[Main] Received message from client:`, message.type);
+
+            // Process message based on type
+            if (message.type === 'user_message') {
+                // Forward to Claude or CLI
+                handleUserMessage(message.data);
+            } else if (message.type === 'negotiate') {
+                // Run negotiation via WebSocket
+                handleWebSocketNegotiation(message.data);
+            } else if (message.type === 'answer') {
+                // Handle answer from user
+                const { question_id, answer } = message.data;
+                console.log(`[Main] Received answer to question ${question_id}: ${answer}`);
+                // This will be handled by the negotiation process
+            }
+        });
+    }
+
     createWindow();
 
     app.on('activate', () => {
@@ -376,6 +577,18 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') {
         app.quit();
+    }
+});
+
+app.on('before-quit', async () => {
+    // Clean up internal WebSocket server
+    if (internalServer) {
+        try {
+            console.log('Stopping internal WebSocket server...');
+            await internalServer.stop();
+        } catch (error) {
+            console.error('Error stopping internal WebSocket server:', error);
+        }
     }
 });
 
@@ -417,30 +630,45 @@ ipcMain.handle('system:run-command', async (event, command) => {
     }
 });
 
+// Store active streaming process for stdin interaction
+let activeStreamingProcess = null;
+
 // Streaming command execution for real-time output
 ipcMain.handle('system:run-command-streaming', async (event, command) => {
     return new Promise((resolve) => {
         const { spawn } = require('child_process');
 
-        // Spawn process with unbuffered output
+        // Spawn process with unbuffered output and stdin enabled
         const proc = spawn(command, {
             cwd: workingDirectory,
             env: { ...process.env, PYTHONUNBUFFERED: '1' },
-            shell: true
+            shell: true,
+            stdio: ['pipe', 'pipe', 'pipe'] // Enable stdin, stdout, stderr
         });
+
+        // Store process reference for stdin interaction
+        activeStreamingProcess = proc;
 
         let stdoutData = '';
         let stderrData = '';
+        let lastOutput = '';
 
         // Stream stdout line by line
         proc.stdout.on('data', (data) => {
             const text = data.toString();
             stdoutData += text;
+            lastOutput += text;
 
             // Send each line immediately to renderer
             const lines = text.split('\n').filter(line => line.trim());
             lines.forEach(line => {
                 event.sender.send('command-output', { type: 'stdout', line });
+
+                // Detect interactive prompts
+                if (line.match(/\(Enter \d+, \d+, or \d+\)|Choose|What's your preference|Select an option/i)) {
+                    event.sender.send('command-prompt', { question: lastOutput });
+                    lastOutput = ''; // Reset after detecting prompt
+                }
             });
         });
 
@@ -458,6 +686,8 @@ ipcMain.handle('system:run-command-streaming', async (event, command) => {
 
         // Handle process completion
         proc.on('close', (code) => {
+            activeStreamingProcess = null;
+
             // Send completion event
             event.sender.send('command-complete', { code });
 
@@ -470,6 +700,7 @@ ipcMain.handle('system:run-command-streaming', async (event, command) => {
 
         // Handle errors
         proc.on('error', (error) => {
+            activeStreamingProcess = null;
             event.sender.send('command-error', { error: error.message });
 
             resolve({
@@ -478,6 +709,19 @@ ipcMain.handle('system:run-command-streaming', async (event, command) => {
             });
         });
     });
+});
+
+// Send input to active streaming process
+ipcMain.handle('system:send-stdin', async (event, input) => {
+    if (activeStreamingProcess && activeStreamingProcess.stdin) {
+        try {
+            activeStreamingProcess.stdin.write(input + '\n');
+            return { success: true };
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+    return { success: false, error: 'No active process' };
 });
 
 ipcMain.handle('graphbus:build', async (event, config) => {
@@ -812,13 +1056,23 @@ ipcMain.handle('github:get-pr-comments', async (event, prNumber) => {
 
         // Get PR comments using gh CLI
         const { stdout } = await execAsync(
-            `gh pr view ${prNumber} --json comments --jq '.comments[] | {author: .author.login, body: .body, createdAt: .createdAt}'`,
+            `gh pr view ${prNumber} --json comments`,
             { cwd: workingDirectory }
         );
 
-        const comments = stdout.trim().split('\n').filter(line => line).map(line => JSON.parse(line));
+        const result = JSON.parse(stdout);
+        const comments = result.comments || [];
 
-        return { success: true, comments };
+        // Transform to expected format
+        const formattedComments = comments.map(comment => ({
+            user: {
+                login: comment.author.login
+            },
+            body: comment.body,
+            created_at: comment.createdAt
+        }));
+
+        return { success: true, comments: formattedComments };
     } catch (error) {
         return { success: false, error: error.message };
     }

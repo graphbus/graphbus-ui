@@ -140,6 +140,9 @@
                 <button class="tab-btn" data-view="state" onclick="switchView('state')">
                     🔄 System State
                 </button>
+                <button class="tab-btn" data-view="pr-review" onclick="switchView('pr-review')">
+                    🔀 PR Review
+                </button>
                 <button class="tab-btn" data-view="settings" onclick="switchView('settings')">
                     ⚙️ Settings
                 </button>
@@ -257,22 +260,22 @@
                             <div class="state-sidebar">
                                 <h3>📂 State Files</h3>
                                 <div id="stateFilesList" class="state-files-list">
-                                    <div class="state-file-item" onclick="loadStateFile('graph.json')">
+                                    <div class="state-file-item" onclick="loadStateFile('graph.json', event)">
                                         graph.json
                                     </div>
-                                    <div class="state-file-item" onclick="loadStateFile('agents.json')">
+                                    <div class="state-file-item" onclick="loadStateFile('agents.json', event)">
                                         agents.json
                                     </div>
-                                    <div class="state-file-item" onclick="loadStateFile('topics.json')">
+                                    <div class="state-file-item" onclick="loadStateFile('topics.json', event)">
                                         topics.json
                                     </div>
-                                    <div class="state-file-item" onclick="loadStateFile('build_summary.json')">
+                                    <div class="state-file-item" onclick="loadStateFile('build_summary.json', event)">
                                         build_summary.json
                                     </div>
-                                    <div class="state-file-item" onclick="loadStateFile('conversations.json')">
+                                    <div class="state-file-item" onclick="loadStateFile('conversations.json', event)">
                                         conversations.json
                                     </div>
-                                    <div class="state-file-item" onclick="loadStateFile('negotiations.json')">
+                                    <div class="state-file-item" onclick="loadStateFile('negotiations.json', event)">
                                         negotiations.json
                                     </div>
                                 </div>
@@ -283,6 +286,93 @@
                                     <button class="copy-btn" id="copyStateBtn" style="display: none;" onclick="copyStateContent()">📋</button>
                                 </div>
                                 <pre id="stateFileContent" class="state-file-viewer">Select a file from the left to view its contents</pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- PR Review View -->
+                <div id="prReviewView" class="view">
+                    <div class="view-content" style="padding: 0;">
+                        <div class="view-header">
+                            <h2>🔀 Pull Request Review</h2>
+                            <button class="refresh-btn" onclick="refreshPRList()" title="Refresh PR list">🔄</button>
+                        </div>
+
+                        <div class="pr-review-container">
+                            <!-- PR List Sidebar -->
+                            <div class="pr-list-sidebar">
+                                <h3>📋 Active PRs</h3>
+                                <div id="prList" class="pr-list">
+                                    <div class="empty-state">
+                                        <div style="font-size: 48px; margin-bottom: 12px;">📭</div>
+                                        <p>No pull requests yet</p>
+                                        <p style="font-size: 12px; color: #888;">Run a negotiation to create your first PR</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- PR Details Panel -->
+                            <div class="pr-details-panel">
+                                <div id="prDetailsEmpty" class="empty-state">
+                                    <div style="font-size: 48px; margin-bottom: 12px;">🔍</div>
+                                    <p>Select a PR to view details</p>
+                                </div>
+
+                                <div id="prDetailsContent" style="display: none;">
+                                    <!-- PR Header -->
+                                    <div class="pr-header">
+                                        <div class="pr-title-section">
+                                            <h3 id="prTitle">PR Title</h3>
+                                            <div class="pr-meta">
+                                                <span class="pr-branch" id="prBranch">branch-name</span>
+                                                <span class="pr-status" id="prStatus">open</span>
+                                                <a id="prLink" href="#" target="_blank" class="pr-link">View on GitHub →</a>
+                                            </div>
+                                        </div>
+                                        <div class="pr-stats">
+                                            <div class="pr-stat">
+                                                <span class="stat-label">Commits</span>
+                                                <span class="stat-value" id="prCommits">0</span>
+                                            </div>
+                                            <div class="pr-stat">
+                                                <span class="stat-label">Negotiation</span>
+                                                <span class="stat-value" id="prNegotiationId">-</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Intent Box -->
+                                    <div class="pr-intent-box">
+                                        <h4>🎯 Intent</h4>
+                                        <p id="prIntent">Loading intent...</p>
+                                    </div>
+
+                                    <!-- Comments Section -->
+                                    <div class="pr-comments-section">
+                                        <div class="section-header">
+                                            <h4>💬 Comments & Discussion</h4>
+                                            <button class="refresh-btn small" onclick="refreshPRComments()" title="Refresh comments">🔄</button>
+                                        </div>
+                                        <div id="prComments" class="pr-comments-list">
+                                            <div class="loading">Loading comments...</div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Add Comment & Continue Negotiation -->
+                                    <div class="pr-action-section">
+                                        <h4>➡️ Continue Negotiation</h4>
+                                        <p class="hint">Add feedback or guidance for the next negotiation round</p>
+                                        <textarea
+                                            id="prFeedbackInput"
+                                            rows="4"
+                                            placeholder="Example: &#10;• Focus on improving error handling in the validation module&#10;• Add more comprehensive test coverage&#10;• Optimize the database query performance"></textarea>
+                                        <div class="pr-action-buttons">
+                                            <button class="btn-secondary" onclick="postGitHubComment()">💬 Post Comment Only</button>
+                                            <button class="btn-primary" onclick="continueNegotiationFromPR()">🚀 Post & Start Negotiation</button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -367,6 +457,22 @@
     </div>
 
     <script src="renderer.js"></script>
+
+    <!-- Interactive Prompt Modal -->
+    <div id="promptModal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>⌨️ Input Required</h2>
+            </div>
+            <div class="modal-body">
+                <pre id="promptQuestion" style="white-space: pre-wrap; background: #1a1a1a; padding: 16px; border-radius: 6px; margin-bottom: 16px;"></pre>
+                <input type="text" id="promptInput" placeholder="Enter your response..." style="width: 100%; padding: 12px; background: #2a2a2a; border: 1px solid #444; border-radius: 6px; color: #e5e7eb; font-size: 14px;" />
+            </div>
+            <div class="modal-footer">
+                <button class="btn-primary" onclick="submitPromptResponse()">Submit</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Agent Negotiation Modal -->
     <div id="negotiationModal" class="modal" style="display: none;">
