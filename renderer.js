@@ -45,6 +45,14 @@ let reverseSearchActive = false;
 let reverseSearchIndex = 0;
 let reverseSearchQuery = '';
 
+// Git setup state
+let gitSetupState = {
+    isInitialized: false,
+    hasRemote: false,
+    remoteUrl: '',
+    remoteErrorMsg: ''
+};
+
 /**
  * Define default workflow stages (can be customized per request)
  */
@@ -795,6 +803,247 @@ function endReverseSearch(accept) {
         document.getElementById('chatInput').value = '';
         document.getElementById('chatInput').focus();
     }
+}
+
+/**
+ * Check git repository status (init + remote)
+ */
+async function checkGitStatus() {
+    try {
+        // Check if git is initialized
+        const gitCheckResult = await window.graphbus.runCommand('git rev-parse --git-dir');
+        gitSetupState.isInitialized = gitCheckResult.success;
+
+        if (!gitSetupState.isInitialized) {
+            console.log('[Git] Git not initialized in working directory');
+            return false;
+        }
+
+        // Check if remote origin exists
+        const remoteCheckResult = await window.graphbus.runCommand('git config --get remote.origin.url');
+        gitSetupState.hasRemote = remoteCheckResult.success && remoteCheckResult.result.stdout.trim();
+
+        if (gitSetupState.hasRemote) {
+            gitSetupState.remoteUrl = remoteCheckResult.result.stdout.trim();
+            console.log('[Git] Remote origin configured:', gitSetupState.remoteUrl);
+        } else {
+            console.log('[Git] No remote origin configured');
+        }
+
+        return gitSetupState.isInitialized && gitSetupState.hasRemote;
+    } catch (error) {
+        console.error('[Git] Error checking git status:', error);
+        gitSetupState.remoteErrorMsg = error.message;
+        return false;
+    }
+}
+
+/**
+ * Show git setup dialog (fused A+B+C)
+ */
+function showGitSetupDialog() {
+    const modal = document.createElement('div');
+    modal.id = 'gitSetupModal';
+    modal.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.7);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 5000;
+    `;
+
+    const content = document.createElement('div');
+    content.style.cssText = `
+        background: #1a1a1a;
+        border: 1px solid #333;
+        border-radius: 12px;
+        padding: 24px;
+        max-width: 500px;
+        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+    `;
+
+    let html = `
+        <h2 style="color: #e0e0e0; margin-bottom: 16px; font-size: 18px;">⚙️ Git Setup Required</h2>
+        <p style="color: #999; margin-bottom: 20px; font-size: 13px;">
+            GraphBus requires git initialization and a remote origin to manage project versioning.
+        </p>
+    `;
+
+    // Status check boxes
+    html += `
+        <div style="background: #0d0d0d; border: 1px solid #333; border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 12px;">
+            <div style="margin-bottom: 8px;">
+                ${gitSetupState.isInitialized ? '✅' : '❌'}
+                <span style="color: ${gitSetupState.isInitialized ? '#4ade80' : '#ff6b6b'};">
+                    Git Repository: ${gitSetupState.isInitialized ? 'Initialized' : 'Not Initialized'}
+                </span>
+            </div>
+            <div>
+                ${gitSetupState.hasRemote ? '✅' : '❌'}
+                <span style="color: ${gitSetupState.hasRemote ? '#4ade80' : '#ff6b6b'};">
+                    Remote Origin: ${gitSetupState.hasRemote ? gitSetupState.remoteUrl : 'Not Configured'}
+                </span>
+            </div>
+        </div>
+    `;
+
+    // If git not initialized, show git init option
+    if (!gitSetupState.isInitialized) {
+        html += `
+            <div style="margin-bottom: 16px;">
+                <label style="color: #a78bfa; font-size: 12px; font-weight: 600; display: block; margin-bottom: 8px;">
+                    <input type="checkbox" id="autoGitInit" checked> Auto-initialize git repository
+                </label>
+            </div>
+        `;
+    }
+
+    // Remote URL input (always shown if no remote)
+    if (!gitSetupState.hasRemote) {
+        html += `
+            <div style="margin-bottom: 16px;">
+                <label style="color: #a78bfa; font-size: 12px; font-weight: 600; display: block; margin-bottom: 8px;">
+                    Remote Origin URL (GitHub/GitLab):
+                </label>
+                <input type="text" id="remoteUrlInput"
+                    placeholder="https://github.com/username/project.git"
+                    style="
+                        width: 100%;
+                        background: #2a2a2a;
+                        border: 1px solid #444;
+                        border-radius: 6px;
+                        padding: 10px;
+                        color: #e0e0e0;
+                        font-size: 12px;
+                        font-family: monospace;
+                        box-sizing: border-box;
+                    "
+                />
+                <div style="color: #666; font-size: 11px; margin-top: 6px;">
+                    💡 Get this from your GitHub/GitLab repository page (clone URL)
+                </div>
+            </div>
+        `;
+    }
+
+    // Buttons
+    html += `
+        <div style="display: flex; gap: 12px; margin-top: 20px;">
+            <button id="gitSetupCancel" style="
+                flex: 1;
+                background: #2a2a2a;
+                border: 1px solid #444;
+                border-radius: 6px;
+                padding: 10px;
+                color: #e0e0e0;
+                cursor: pointer;
+                font-size: 12px;
+                font-weight: 500;
+            ">Cancel</button>
+            <button id="gitSetupProceed" style="
+                flex: 1;
+                background: #667eea;
+                border: none;
+                border-radius: 6px;
+                padding: 10px;
+                color: white;
+                cursor: pointer;
+                font-size: 12px;
+                font-weight: 600;
+            ">Setup & Continue</button>
+        </div>
+    `;
+
+    content.innerHTML = html;
+    modal.appendChild(content);
+    document.body.appendChild(modal);
+
+    // Event handlers
+    document.getElementById('gitSetupCancel').addEventListener('click', () => {
+        modal.remove();
+    });
+
+    document.getElementById('gitSetupProceed').addEventListener('click', async () => {
+        const remoteUrl = document.getElementById('remoteUrlInput')?.value || gitSetupState.remoteUrl;
+        const shouldAutoInit = document.getElementById('autoGitInit')?.checked ?? false;
+
+        if (!remoteUrl) {
+            alert('Please enter a remote origin URL');
+            return;
+        }
+
+        modal.remove();
+        await setupGitRepository(shouldAutoInit, remoteUrl);
+    });
+}
+
+/**
+ * Setup git repository (auto-execute with validation)
+ */
+async function setupGitRepository(autoInit, remoteUrl) {
+    addMessage('🔧 Setting up git repository for GraphBus...', 'system');
+
+    try {
+        let commands = [];
+
+        // Step 1: Initialize git if needed
+        if (autoInit && !gitSetupState.isInitialized) {
+            addMessage('⏳ Initializing git repository...', 'system');
+            const initResult = await window.graphbus.runCommand('git init');
+            if (!initResult.success) {
+                throw new Error(`Git init failed: ${initResult.error}`);
+            }
+            addMessage('✅ Git repository initialized', 'system');
+            gitSetupState.isInitialized = true;
+        }
+
+        // Step 2: Add remote origin if needed
+        if (!gitSetupState.hasRemote) {
+            addMessage('⏳ Adding remote origin...', 'system');
+            const remoteResult = await window.graphbus.runCommand(`git remote add origin "${remoteUrl}"`);
+            if (!remoteResult.success) {
+                throw new Error(`Failed to add remote: ${remoteResult.error}`);
+            }
+            addMessage(`✅ Remote origin configured: ${remoteUrl}`, 'system');
+            gitSetupState.hasRemote = true;
+            gitSetupState.remoteUrl = remoteUrl;
+        }
+
+        // Step 3: Validate setup
+        const finalCheck = await checkGitStatus();
+        if (!finalCheck) {
+            throw new Error('Git setup validation failed');
+        }
+
+        addMessage('✅ Git repository is ready for GraphBus!', 'system');
+        return true;
+    } catch (error) {
+        addMessage(`❌ Git setup failed: ${error.message}`, 'system');
+        return false;
+    }
+}
+
+/**
+ * Pre-flight check before graphbus init
+ */
+async function preFlightCheckBeforeGraphBusInit() {
+    addMessage('🔍 Running pre-flight checks...', 'system');
+
+    const gitReady = await checkGitStatus();
+
+    if (!gitReady) {
+        addMessage('⚠️ Git setup required before initializing GraphBus', 'system');
+        showGitSetupDialog();
+        return false;
+    }
+
+    addMessage('✅ All pre-flight checks passed!', 'system');
+    return true;
 }
 
 /**
@@ -1995,6 +2244,14 @@ async function executeClaudeAction(action, params) {
         switch (action) {
             case 'run_command':
                 if (params.command) {
+                    // Pre-flight check for graphbus init
+                    if (params.command.includes('graphbus init')) {
+                        const gitReady = await preFlightCheckBeforeGraphBusInit();
+                        if (!gitReady) {
+                            console.log('[Git] Skipping graphbus init - git setup required');
+                            return;
+                        }
+                    }
                     await runShellCommand(params.command);
                 }
                 break;
