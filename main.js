@@ -1231,5 +1231,94 @@ ipcMain.handle('claude:delete-config', async (event) => {
     }
 });
 
+// File operations handlers
+ipcMain.handle('files:list', async (event, directory) => {
+    try {
+        const files = [];
+        const traverse = (dir) => {
+            try {
+                const entries = fs.readdirSync(dir);
+                entries.forEach(entry => {
+                    try {
+                        const fullPath = path.join(dir, entry);
+                        const stat = fs.statSync(fullPath);
+
+                        // Skip node_modules, .git, and hidden directories (except .graphbus)
+                        if (entry.startsWith('.') && entry !== '.graphbus') {
+                            return;
+                        }
+                        if (entry === 'node_modules') {
+                            return;
+                        }
+
+                        if (stat.isDirectory()) {
+                            traverse(fullPath);
+                        } else {
+                            files.push(fullPath);
+                        }
+                    } catch (e) {
+                        console.error(`Error processing ${fullPath}:`, e);
+                    }
+                });
+            } catch (e) {
+                console.error(`Error reading directory ${dir}:`, e);
+            }
+        };
+
+        traverse(directory);
+        return { success: true, result: files };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('files:read', async (event, filePath) => {
+    try {
+        const content = fs.readFileSync(filePath, 'utf-8');
+        return { success: true, result: content };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('files:write', async (event, filePath, content) => {
+    try {
+        // Create directory if it doesn't exist
+        const dir = path.dirname(filePath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
+
+        fs.writeFileSync(filePath, content, 'utf-8');
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('files:delete', async (event, filePath) => {
+    try {
+        if (fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+            return { success: true };
+        } else {
+            return { success: false, error: 'File not found' };
+        }
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
+ipcMain.handle('files:create-folder', async (event, folderPath) => {
+    try {
+        if (!fs.existsSync(folderPath)) {
+            fs.mkdirSync(folderPath, { recursive: true });
+        }
+        return { success: true };
+    } catch (error) {
+        return { success: false, error: error.message };
+    }
+});
+
 console.log('GraphBus UI - Electron main process started');
 console.log('Working directory:', workingDirectory);

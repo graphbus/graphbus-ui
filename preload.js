@@ -75,7 +75,14 @@ contextBridge.exposeInMainWorld('graphbus', {
     githubCreatePR: (title, body, branchName) => ipcRenderer.invoke('github:create-pr', title, body, branchName),
     githubGetPRComments: (prNumber) => ipcRenderer.invoke('github:get-pr-comments', prNumber),
     prSaveTracking: (prData) => ipcRenderer.invoke('pr:save-tracking', prData),
-    prLoadTracking: () => ipcRenderer.invoke('pr:load-tracking')
+    prLoadTracking: () => ipcRenderer.invoke('pr:load-tracking'),
+
+    // File operations
+    listFiles: (directory) => ipcRenderer.invoke('files:list', directory),
+    readFile: (filePath) => ipcRenderer.invoke('files:read', filePath),
+    writeFile: (filePath, content) => ipcRenderer.invoke('files:write', filePath, content),
+    deleteFile: (filePath) => ipcRenderer.invoke('files:delete', filePath),
+    createFolder: (folderPath) => ipcRenderer.invoke('files:create-folder', folderPath)
 });
 
 console.log('Preload script loaded - graphbus API exposed to renderer');

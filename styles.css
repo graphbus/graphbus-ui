@@ -1944,3 +1944,89 @@ button:hover {
 #autocompleteContainer::-webkit-scrollbar-thumb:hover {
     background: #444;
 }
+
+/* File Tree Styles */
+.file-tree-item {
+    padding: 6px 0;
+    margin: 0;
+    user-select: none;
+}
+
+.file-tree-folder {
+    padding-left: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    color: #aaa;
+}
+
+.file-tree-folder:hover {
+    color: #ccc;
+}
+
+.file-tree-folder.expanded::before {
+    content: '▼';
+    font-size: 10px;
+    width: 12px;
+    display: inline-block;
+}
+
+.file-tree-folder:not(.expanded)::before {
+    content: '▶';
+    font-size: 10px;
+    width: 12px;
+    display: inline-block;
+}
+
+.file-tree-children {
+    display: none;
+    margin-left: 12px;
+}
+
+.file-tree-folder.expanded + .file-tree-children {
+    display: block;
+}
+
+.file-tree-file {
+    padding-left: 28px;
+    padding: 4px 6px 4px 28px;
+    cursor: pointer;
+    color: #999;
+    font-size: 12px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-tree-file:hover {
+    background: rgba(102, 126, 234, 0.15);
+    color: #aaa;
+}
+
+.file-tree-file.selected {
+    background: rgba(102, 126, 234, 0.3);
+    color: #667eea;
+    border-left: 2px solid #667eea;
+    padding-left: 26px;
+}
+
+#fileEditor::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+#fileEditor::-webkit-scrollbar-track {
+    background: #0f0f0f;
+}
+
+#fileEditor::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 4px;
+}
+
+#fileEditor::-webkit-scrollbar-thumb:hover {
+    background: #444;
+}

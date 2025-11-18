@@ -1455,6 +1455,13 @@ function switchView(viewName) {
             graphNetwork.fit();
         }, 300);
     }
+
+    // If switching to files view, load the file tree
+    if (viewName === 'files') {
+        setTimeout(() => {
+            loadFileTree();
+        }, 100);
+    }
 }
 
 // Update Claude status badge and settings view
@@ -3785,12 +3792,294 @@ async function changeWorkingDirectory() {
     }
 }
 
+/**
+ * File Browser Variables
+ */
+let currentOpenFile = null;
+let fileContents = {};
+let fileModified = {};
+
+/**
+ * Load and display file tree for current working directory
+ */
+async function loadFileTree() {
+    const fileTreeContainer = document.getElementById('fileTree');
+    fileTreeContainer.innerHTML = '<div class="loading" style="padding: 20px; text-align: center; color: #666;">Loading files...</div>';
+
+    try {
+        const result = await window.graphbus.listFiles(workingDirectory);
+
+        if (result.success) {
+            const tree = buildFileTreeHTML(result.result, workingDirectory);
+            fileTreeContainer.innerHTML = tree || '<div style="padding: 20px; text-align: center; color: #666;">No files found</div>';
+        } else {
+            fileTreeContainer.innerHTML = `<div style="padding: 20px; text-align: center; color: #f87171;">${result.error || 'Error loading files'}</div>`;
+        }
+    } catch (error) {
+        console.error('Failed to load file tree:', error);
+        fileTreeContainer.innerHTML = `<div style="padding: 20px; text-align: center; color: #f87171;">Error: ${error.message}</div>`;
+    }
+}
+
+/**
+ * Build HTML tree structure from files list
+ */
+function buildFileTreeHTML(files, basePath) {
+    if (!files || files.length === 0) return '';
+
+    // Group files by directory
+    const tree = {};
+    const dirs = new Set();
+
+    files.forEach(file => {
+        const relativePath = file.replace(basePath + '/', '');
+        const parts = relativePath.split('/');
+
+        // Skip certain directories
+        if (parts[0].startsWith('.') && !parts[0].includes('.graphbus') && !parts[0].includes('.git')) {
+            return;
+        }
+
+        let current = tree;
+        for (let i = 0; i < parts.length - 1; i++) {
+            if (!current[parts[i]]) {
+                current[parts[i]] = {};
+                dirs.add(parts.slice(0, i + 1).join('/'));
+            }
+            current = current[parts[i]];
+        }
+
+        if (!current._files) current._files = [];
+        current._files.push({
+            name: parts[parts.length - 1],
+            path: file
+        });
+    });
+
+    return renderTreeNode(tree, basePath);
+}
+
+/**
+ * Render a single tree node recursively
+ */
+function renderTreeNode(node, basePath, level = 0) {
+    let html = '';
+
+    // Sort folders first, then files
+    const folders = Object.keys(node).filter(k => k !== '_files' && typeof node[k] === 'object').sort();
+    const files = (node._files || []).sort((a, b) => a.name.localeCompare(b.name));
+
+    folders.forEach(folderName => {
+        const folderId = folderName.replace(/\//g, '_');
+        html += `
+            <div class="file-tree-item">
+                <div class="file-tree-folder" id="folder_${folderId}" onclick="toggleFolder(this)">
+                    <span style="margin-left: ${level * 8}px;">📁 ${folderName}</span>
+                </div>
+                <div class="file-tree-children" id="children_${folderId}">
+                    ${renderTreeNode(node[folderName], basePath, level + 1)}
+                </div>
+            </div>
+        `;
+    });
+
+    files.forEach(file => {
+        const fileId = file.path.replace(/\//g, '_').replace(/\./g, '_');
+        const icon = getFileIcon(file.name);
+        html += `
+            <div class="file-tree-file" id="file_${fileId}" onclick="openFile('${file.path}')">
+                ${icon} ${file.name}
+            </div>
+        `;
+    });
+
+    return html;
+}
+
+/**
+ * Get file icon based on extension
+ */
+function getFileIcon(filename) {
+    const ext = filename.split('.').pop().toLowerCase();
+    const icons = {
+        'py': '🐍',
+        'js': '⚙️',
+        'json': '{}',
+        'md': '📝',
+        'txt': '📄',
+        'yaml': '📋',
+        'yml': '📋',
+        'graphbus': '📊',
+        'sh': '🔧',
+        'ts': '⚙️',
+        'tsx': '⚛️',
+        'jsx': '⚛️',
+        'css': '🎨',
+        'html': '🌐',
+        'xml': '📋'
+    };
+    return icons[ext] || '📄';
+}
+
+/**
+ * Toggle folder expansion
+ */
+function toggleFolder(folderElement) {
+    folderElement.classList.toggle('expanded');
+    const folderId = folderElement.id.replace('folder_', '');
+    const childrenElement = document.getElementById('children_' + folderId);
+    if (childrenElement) {
+        childrenElement.style.display = childrenElement.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+/**
+ * Open a file for editing
+ */
+async function openFile(filePath) {
+    try {
+        // Clear previous selection
+        document.querySelectorAll('.file-tree-file.selected').forEach(el => {
+            el.classList.remove('selected');
+        });
+
+        // Mark as selected
+        const fileId = filePath.replace(/\//g, '_').replace(/\./g, '_');
+        const fileElement = document.getElementById('file_' + fileId);
+        if (fileElement) {
+            fileElement.classList.add('selected');
+        }
+
+        // Load file content
+        const result = await window.graphbus.readFile(filePath);
+
+        if (result.success) {
+            currentOpenFile = filePath;
+            fileContents[filePath] = result.result;
+            fileModified[filePath] = false;
+
+            // Update editor
+            const editor = document.getElementById('fileEditor');
+            editor.value = result.result;
+            editor.disabled = false;
+
+            // Update UI
+            document.getElementById('currentFilePath').textContent = filePath.replace(workingDirectory, '');
+            document.getElementById('fileModified').style.display = 'none';
+            document.getElementById('saveFileBtn').style.display = 'inline-block';
+            document.getElementById('closeFileBtn').style.display = 'inline-block';
+            document.getElementById('fileStats').style.display = 'block';
+
+            // Update stats
+            updateFileStats();
+
+            // Track changes
+            editor.addEventListener('input', () => {
+                if (!fileModified[currentOpenFile]) {
+                    fileModified[currentOpenFile] = true;
+                    document.getElementById('fileModified').style.display = 'inline';
+                }
+                updateFileStats();
+            });
+        } else {
+            addMessage(`❌ Failed to open file: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Failed to open file:', error);
+        addMessage(`❌ Error opening file: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Update file statistics
+ */
+function updateFileStats() {
+    const editor = document.getElementById('fileEditor');
+    const content = editor.value;
+    const lines = content.split('\n').length;
+    const chars = content.length;
+
+    document.getElementById('lineCount').textContent = `Lines: ${lines}`;
+    document.getElementById('charCount').textContent = `Chars: ${chars}`;
+}
+
+/**
+ * Save current file
+ */
+async function saveCurrentFile() {
+    if (!currentOpenFile) return;
+
+    try {
+        const content = document.getElementById('fileEditor').value;
+        const result = await window.graphbus.writeFile(currentOpenFile, content);
+
+        if (result.success) {
+            fileContents[currentOpenFile] = content;
+            fileModified[currentOpenFile] = false;
+
+            document.getElementById('fileModified').style.display = 'none';
+            addMessage(`✅ File saved: ${currentOpenFile.replace(workingDirectory, '')}`, 'system');
+        } else {
+            addMessage(`❌ Failed to save file: ${result.error}`, 'error');
+        }
+    } catch (error) {
+        console.error('Failed to save file:', error);
+        addMessage(`❌ Error saving file: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * Close current file
+ */
+function closeCurrentFile() {
+    if (currentOpenFile && fileModified[currentOpenFile]) {
+        if (!confirm('File has unsaved changes. Close anyway?')) {
+            return;
+        }
+    }
+
+    currentOpenFile = null;
+    document.getElementById('fileEditor').value = '';
+    document.getElementById('fileEditor').disabled = true;
+    document.getElementById('currentFilePath').textContent = 'Select a file to view';
+    document.getElementById('fileModified').style.display = 'none';
+    document.getElementById('saveFileBtn').style.display = 'none';
+    document.getElementById('closeFileBtn').style.display = 'none';
+    document.getElementById('fileStats').style.display = 'none';
+
+    document.querySelectorAll('.file-tree-file.selected').forEach(el => {
+        el.classList.remove('selected');
+    });
+}
+
+/**
+ * Refresh file tree
+ */
+function refreshFileTree() {
+    loadFileTree();
+}
+
+/**
+ * Collapse all folders
+ */
+function collapseAllFolders() {
+    document.querySelectorAll('.file-tree-folder.expanded').forEach(folder => {
+        folder.classList.remove('expanded');
+        const folderId = folder.id.replace('folder_', '');
+        const childrenElement = document.getElementById('children_' + folderId);
+        if (childrenElement) {
+            childrenElement.style.display = 'none';
+        }
+    });
+}
+
 // View cycling state
 let focusedViewIndex = 0;
 const views = [
     { name: 'graph', label: 'Agent Graph' },
     { name: 'conversation', label: 'Conversation' },
     { name: 'state', label: 'System State' },
+    { name: 'files', label: 'File Editor' },
     { name: 'settings', label: 'Settings' }
 ];
 
