@@ -1,0 +1,17 @@
+{
+  "sessions": [
+    {
+      "session_id": "negotiate_70c7e782",
+      "intent": "Agent-driven code improvements",
+      "timestamp": "2025-11-16T19:07:05.121255",
+      "branch_name": "graphbus/negotiate-agent-driven-code-improvements-a17f31",
+      "pr_number": null,
+      "pr_url": null,
+      "status": "in_progress",
+      "modified_files": [],
+      "commit_count": 0,
+      "developer_feedback": []
+    }
+  ],
+  "active_session": null
+}

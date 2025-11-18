@@ -40,6 +40,11 @@ let workflowDAG = null;
 let workflowPlan = null; // Stores the created DAG plan
 let existingAgents = []; // Track agents found during check_agents stage
 
+// Reverse search state
+let reverseSearchActive = false;
+let reverseSearchIndex = 0;
+let reverseSearchQuery = '';
+
 /**
  * Define default workflow stages (can be customized per request)
  */
@@ -660,66 +665,229 @@ function getAutocompleteSuggestions(input) {
 }
 
 /**
- * Show autocomplete suggestions
+ * Start reverse search (Ctrl+R)
+ */
+function startReverseSearch() {
+    if (reverseSearchActive) {
+        // Cycle to next match
+        reverseSearchIndex++;
+        searchHistoryReverse();
+        return;
+    }
+
+    reverseSearchActive = true;
+    reverseSearchQuery = '';
+    reverseSearchIndex = 0;
+
+    showReverseSearchOverlay();
+}
+
+/**
+ * Search command history in reverse
+ */
+function searchHistoryReverse() {
+    const query = reverseSearchQuery.toLowerCase();
+    const matches = commandHistory
+        .map((cmd, idx) => ({ cmd, idx }))
+        .filter(item => item.cmd.toLowerCase().includes(query))
+        .reverse();
+
+    if (matches.length === 0) {
+        document.getElementById('chatInput').value = '';
+        updateReverseSearchOverlay('No matches', 0, 0);
+        return;
+    }
+
+    const matchIndex = reverseSearchIndex % matches.length;
+    const match = matches[matchIndex];
+
+    document.getElementById('chatInput').value = match.cmd;
+    updateReverseSearchOverlay(query, matchIndex + 1, matches.length);
+}
+
+/**
+ * Show reverse search overlay
+ */
+function showReverseSearchOverlay() {
+    let overlay = document.getElementById('reverseSearchOverlay');
+
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'reverseSearchOverlay';
+        document.body.appendChild(overlay);
+    }
+
+    overlay.innerHTML = `
+        <div class="reverse-search-box">
+            <div class="reverse-search-header">
+                <span class="reverse-search-label">(reverse-i-search)</span>
+            </div>
+            <div class="reverse-search-input">
+                <input type="text" id="reverseSearchInput" placeholder="Search history..." autofocus>
+                <span class="reverse-search-counter" id="reverseSearchCounter">0/0</span>
+            </div>
+            <div class="reverse-search-help">
+                Use Ctrl+R to cycle | Enter to accept | Esc to cancel
+            </div>
+        </div>
+    `;
+
+    overlay.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 10000;
+        background: #1a1a1a;
+        border: 1px solid #333;
+        border-radius: 8px;
+        padding: 12px 16px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+        min-width: 300px;
+        animation: slideUp 0.2s ease-out;
+    `;
+
+    const input = document.getElementById('reverseSearchInput');
+    input.focus();
+    input.addEventListener('input', (e) => {
+        reverseSearchQuery = e.target.value;
+        reverseSearchIndex = 0;
+        searchHistoryReverse();
+    });
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            endReverseSearch(true);
+        } else if (e.key === 'Escape') {
+            endReverseSearch(false);
+        } else if (e.ctrlKey && e.key === 'r') {
+            e.preventDefault();
+            startReverseSearch();
+        }
+    });
+}
+
+/**
+ * Update reverse search overlay
+ */
+function updateReverseSearchOverlay(query, current, total) {
+    const counter = document.getElementById('reverseSearchCounter');
+    if (counter) {
+        counter.textContent = `${total > 0 ? current : 0}/${total}`;
+    }
+}
+
+/**
+ * End reverse search
+ */
+function endReverseSearch(accept) {
+    reverseSearchActive = false;
+    reverseSearchIndex = 0;
+    reverseSearchQuery = '';
+
+    const overlay = document.getElementById('reverseSearchOverlay');
+    if (overlay) {
+        overlay.remove();
+    }
+
+    if (accept) {
+        document.getElementById('chatInput').focus();
+    } else {
+        document.getElementById('chatInput').value = '';
+        document.getElementById('chatInput').focus();
+    }
+}
+
+/**
+ * Show autocomplete suggestions (Warp-style)
  */
 function showAutocomplete(input, suggestions) {
-    let autocompleteList = document.getElementById('autocompleteList');
+    let autocompleteContainer = document.getElementById('autocompleteContainer');
 
     if (!suggestions || suggestions.length === 0) {
-        if (autocompleteList) {
-            autocompleteList.remove();
+        if (autocompleteContainer) {
+            autocompleteContainer.remove();
         }
         return;
     }
 
-    // Create or reuse autocomplete list
-    if (!autocompleteList) {
-        autocompleteList = document.createElement('ul');
-        autocompleteList.id = 'autocompleteList';
-        autocompleteList.style.cssText = `
-            position: absolute;
-            background: #1a1a1a;
-            border: 1px solid #333;
-            border-radius: 0;
-            list-style: none;
-            padding: 0;
-            margin: 0;
-            max-height: 200px;
-            overflow-y: auto;
-            font-family: 'SF Mono', Monaco, 'Courier New', monospace;
-            font-size: 12px;
-            z-index: 1000;
-            width: 100%;
-            bottom: 100%;
-        `;
+    // Create or reuse autocomplete container
+    if (!autocompleteContainer) {
+        autocompleteContainer = document.createElement('div');
+        autocompleteContainer.id = 'autocompleteContainer';
         const chatInput = document.getElementById('chatInput');
         chatInput.parentElement.style.position = 'relative';
-        chatInput.parentElement.insertBefore(autocompleteList, chatInput);
+        chatInput.parentElement.insertBefore(autocompleteContainer, chatInput);
     }
 
+    autocompleteContainer.style.cssText = `
+        position: absolute;
+        bottom: 100%;
+        left: 0;
+        right: 0;
+        background: #0d0d0d;
+        border: 1px solid #333;
+        border-radius: 8px;
+        list-style: none;
+        margin: 0 0 8px 0;
+        padding: 4px 0;
+        max-height: 280px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+        font-size: 12px;
+        z-index: 1000;
+        width: 100%;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+        animation: slideUp 0.15s ease-out;
+    `;
+
     // Update autocomplete list
-    autocompleteList.innerHTML = '';
+    autocompleteContainer.innerHTML = '';
     suggestions.forEach((suggestion, index) => {
-        const li = document.createElement('li');
-        li.style.cssText = `
-            padding: 8px 12px;
+        const item = document.createElement('div');
+        item.style.cssText = `
+            padding: 10px 14px;
             cursor: pointer;
-            border-bottom: 1px solid #2a2a2a;
             color: #a78bfa;
+            transition: all 0.1s ease;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            ${index === autocompleteIndex ? 'background: #1a1a1a; border-left: 3px solid #a78bfa;' : 'border-left: 3px solid transparent;'}
         `;
-        li.textContent = suggestion;
-        li.addEventListener('click', () => {
+
+        // Add keyboard hint
+        const hintSpan = document.createElement('span');
+        hintSpan.style.cssText = `
+            font-size: 10px;
+            color: #666;
+            margin-left: 12px;
+            flex-shrink: 0;
+        `;
+        hintSpan.textContent = index === 0 ? 'Tab to use' : '';
+
+        item.addEventListener('click', () => {
             document.getElementById('chatInput').value = suggestion;
-            autocompleteList.remove();
+            autocompleteContainer.remove();
             autocompleteIndex = -1;
         });
-        li.addEventListener('mouseover', () => {
-            li.style.background = '#2a2a2a';
+        item.addEventListener('mouseover', () => {
+            item.style.background = '#1a1a1a';
+            item.style.borderLeft = '3px solid #a78bfa';
+            autocompleteIndex = index;
         });
-        li.addEventListener('mouseout', () => {
-            li.style.background = 'transparent';
+        item.addEventListener('mouseout', () => {
+            item.style.background = 'transparent';
+            item.style.borderLeft = '3px solid transparent';
         });
-        autocompleteList.appendChild(li);
+
+        const textSpan = document.createElement('span');
+        textSpan.textContent = suggestion;
+        textSpan.style.flex = '1';
+
+        item.appendChild(textSpan);
+        item.appendChild(hintSpan);
+        autocompleteContainer.appendChild(item);
     });
 }
 
@@ -3469,6 +3637,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Global keyboard shortcuts
     document.addEventListener('keydown', (e) => {
+        // Ctrl+R for reverse search in command history
+        if ((e.ctrlKey || e.metaKey) && e.key === 'r') {
+            e.preventDefault();
+            startReverseSearch();
+            return;
+        }
+
         // Tab to cycle forward, Shift+Tab to cycle backward
         if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey) {
             // Only cycle if not in any input field (chat, settings, etc.)
