@@ -1,16 +1,11 @@
 // renderer.js - UI logic and GraphBus API calls
 
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import AgentGraph from './AgentGraph.jsx';
-
 let statusInterval;
 let workingDirectory = null; // Will be set from main process
 let codeMirrorEditor = null; // CodeMirror editor instance
 let xterm = null; // xterm.js terminal instance
 let terminalInitialized = false; // Track if terminal is initialized
 let terminalMode = 'auto'; // Terminal input mode: 'auto', 'cmd', or 'prompt'
-let graphRoot = null; // React root for graph component
 
 // Terminal shell-like features
 let commandHistory = []; // Track command history
@@ -769,36 +764,62 @@ window.menu.onInitialWorkingDirectory((dir) => {
     workingDirectory = dir;
     initialWorkingDirReceived = true;
 
-    // Function to show main layout and hide welcome screen
-    function showMainLayout() {
-        const loadingScreen = document.getElementById('loadingScreen');
-        const welcomeScreen = document.getElementById('welcomeScreen');
-        const mainLayout = document.querySelector('.main-layout');
+    // Function to initialize and show main layout
+    async function initializeAndShowMainLayout() {
+        try {
+            console.log('[Renderer] Initializing with directory:', dir);
 
-        if (loadingScreen) {
-            loadingScreen.classList.add('hidden');
-        }
-        if (welcomeScreen) {
-            welcomeScreen.classList.add('hidden');
-        }
-        if (mainLayout) {
-            mainLayout.classList.add('visible');
-        }
+            // First, rehydrate the state
+            await rehydrateState(dir);
+            console.log('[Renderer] State rehydration complete');
 
-        // Switch to terminal view
-        switchView('conversation');
+            // Initialize terminal if needed
+            if (!terminalInitialized) {
+                console.log('[Renderer] Initializing terminal...');
+                initializeTerminal();
+                console.log('[Renderer] Terminal initialized');
+            }
+
+            // Now show main layout
+            const loadingScreen = document.getElementById('loadingScreen');
+            const welcomeScreen = document.getElementById('welcomeScreen');
+            const mainLayout = document.querySelector('.main-layout');
+
+            if (loadingScreen) {
+                console.log('[Renderer] Hiding loading screen');
+                loadingScreen.classList.add('hidden');
+            }
+            if (welcomeScreen) {
+                welcomeScreen.classList.add('hidden');
+            }
+            if (mainLayout) {
+                console.log('[Renderer] Showing main layout');
+                mainLayout.classList.add('visible');
+            }
+
+            // Switch to terminal view
+            console.log('[Renderer] Switching to conversation view');
+            switchView('conversation');
+
+            // Start status polling
+            startStatusPolling();
+            console.log('[Renderer] Status polling started');
+        } catch (error) {
+            console.error('[Renderer] Error during initialization:', error);
+            const loadingScreen = document.getElementById('loadingScreen');
+            if (loadingScreen) {
+                loadingScreen.classList.add('hidden');
+            }
+            addMessage('❌ Error initializing project: ' + error.message, 'error');
+        }
     }
 
-    // Wait for DOM to be ready before hiding welcome screen
+    // Wait for DOM to be ready before initializing
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', async () => {
-            showMainLayout();
-            await rehydrateState(workingDirectory);
-        });
+        document.addEventListener('DOMContentLoaded', initializeAndShowMainLayout);
     } else {
         // DOM is already loaded
-        showMainLayout();
-        rehydrateState(workingDirectory);
+        initializeAndShowMainLayout();
     }
 });
 let currentArtifactsDir = null; // Will be calculated from working directory
@@ -3608,24 +3629,20 @@ function displayAgents(nodes, edges = []) {
     // Clear the container
     graphCanvas.innerHTML = '';
 
-    // Create React root if it doesn't exist
-    if (!graphRoot) {
-        graphRoot = ReactDOM.createRoot(graphCanvas);
-    }
-
-    // Render the React Flow graph component
-    try {
-        graphRoot.render(
-            React.createElement(AgentGraph, {
-                nodes: nodes,
-                edges: edges
-            })
-        );
-        console.log('React Flow graph rendered successfully');
-    } catch (error) {
-        console.error('Error rendering React Flow graph:', error);
-        graphCanvas.innerHTML = `<p class="placeholder" style="padding: 20px; color: red;">Error loading graph: ${error.message}</p>`;
-    }
+    // Show placeholder for agent graph (React graph disabled for now)
+    const placeholder = document.createElement('div');
+    placeholder.className = 'placeholder';
+    placeholder.style.cssText = 'padding: 40px; color: #888; text-align: center; font-size: 14px;';
+    placeholder.innerHTML = `
+        <div style="opacity: 0.6;">
+            <div style="margin-bottom: 20px; font-size: 12px; color: #666;">Agent Graph View</div>
+            <div style="font-size: 12px;">
+                Showing ${nodes?.length || 0} agents and ${edges?.length || 0} connections
+            </div>
+        </div>
+    `;
+    graphCanvas.appendChild(placeholder);
+    console.log('Agent graph view rendered');
 }
 
 // Show actions for selected agent
