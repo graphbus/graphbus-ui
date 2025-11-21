@@ -45,13 +45,7 @@ let reverseSearchActive = false;
 let reverseSearchIndex = 0;
 let reverseSearchQuery = '';
 
-// Git setup state
-let gitSetupState = {
-    isInitialized: false,
-    hasRemote: false,
-    remoteUrl: '',
-    remoteErrorMsg: ''
-};
+
 
 /**
  * Define default workflow stages (can be customized per request)
@@ -511,7 +505,7 @@ function analyzeClaudeResponse(message) {
 
     // Check for self-evident next steps the AI should continue with
     const shouldAutoContinue = /(?:let me|i'll|now|next|then|proceeding|running|executing)/i.test(message) &&
-                               !handedToUser;
+        !handedToUser;
 
     // Check for explicit continuation markers
     const hasContMsg = /continuing|moving on|next up|generating|building|running/i.test(message);
@@ -806,247 +800,6 @@ function endReverseSearch(accept) {
 }
 
 /**
- * Check git repository status (init + remote)
- */
-async function checkGitStatus() {
-    try {
-        // Check if git is initialized
-        const gitCheckResult = await window.graphbus.runCommand('git rev-parse --git-dir');
-        gitSetupState.isInitialized = gitCheckResult.success;
-
-        if (!gitSetupState.isInitialized) {
-            console.log('[Git] Git not initialized in working directory');
-            return false;
-        }
-
-        // Check if remote origin exists
-        const remoteCheckResult = await window.graphbus.runCommand('git config --get remote.origin.url');
-        gitSetupState.hasRemote = remoteCheckResult.success && remoteCheckResult.result.stdout.trim();
-
-        if (gitSetupState.hasRemote) {
-            gitSetupState.remoteUrl = remoteCheckResult.result.stdout.trim();
-            console.log('[Git] Remote origin configured:', gitSetupState.remoteUrl);
-        } else {
-            console.log('[Git] No remote origin configured');
-        }
-
-        return gitSetupState.isInitialized && gitSetupState.hasRemote;
-    } catch (error) {
-        console.error('[Git] Error checking git status:', error);
-        gitSetupState.remoteErrorMsg = error.message;
-        return false;
-    }
-}
-
-/**
- * Show git setup dialog (fused A+B+C)
- */
-function showGitSetupDialog() {
-    const modal = document.createElement('div');
-    modal.id = 'gitSetupModal';
-    modal.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        background: rgba(0, 0, 0, 0.7);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 5000;
-    `;
-
-    const content = document.createElement('div');
-    content.style.cssText = `
-        background: #1a1a1a;
-        border: 1px solid #333;
-        border-radius: 12px;
-        padding: 24px;
-        max-width: 500px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
-    `;
-
-    let html = `
-        <h2 style="color: #e0e0e0; margin-bottom: 16px; font-size: 18px;">⚙️ Git Setup Required</h2>
-        <p style="color: #999; margin-bottom: 20px; font-size: 13px;">
-            GraphBus requires git initialization and a remote origin to manage project versioning.
-        </p>
-    `;
-
-    // Status check boxes
-    html += `
-        <div style="background: #0d0d0d; border: 1px solid #333; border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 12px;">
-            <div style="margin-bottom: 8px;">
-                ${gitSetupState.isInitialized ? '✅' : '❌'}
-                <span style="color: ${gitSetupState.isInitialized ? '#4ade80' : '#ff6b6b'};">
-                    Git Repository: ${gitSetupState.isInitialized ? 'Initialized' : 'Not Initialized'}
-                </span>
-            </div>
-            <div>
-                ${gitSetupState.hasRemote ? '✅' : '❌'}
-                <span style="color: ${gitSetupState.hasRemote ? '#4ade80' : '#ff6b6b'};">
-                    Remote Origin: ${gitSetupState.hasRemote ? gitSetupState.remoteUrl : 'Not Configured'}
-                </span>
-            </div>
-        </div>
-    `;
-
-    // If git not initialized, show git init option
-    if (!gitSetupState.isInitialized) {
-        html += `
-            <div style="margin-bottom: 16px;">
-                <label style="color: #a78bfa; font-size: 12px; font-weight: 600; display: block; margin-bottom: 8px;">
-                    <input type="checkbox" id="autoGitInit" checked> Auto-initialize git repository
-                </label>
-            </div>
-        `;
-    }
-
-    // Remote URL input (always shown if no remote)
-    if (!gitSetupState.hasRemote) {
-        html += `
-            <div style="margin-bottom: 16px;">
-                <label style="color: #a78bfa; font-size: 12px; font-weight: 600; display: block; margin-bottom: 8px;">
-                    Remote Origin URL (GitHub/GitLab):
-                </label>
-                <input type="text" id="remoteUrlInput"
-                    placeholder="https://github.com/username/project.git"
-                    style="
-                        width: 100%;
-                        background: #2a2a2a;
-                        border: 1px solid #444;
-                        border-radius: 6px;
-                        padding: 10px;
-                        color: #e0e0e0;
-                        font-size: 12px;
-                        font-family: monospace;
-                        box-sizing: border-box;
-                    "
-                />
-                <div style="color: #666; font-size: 11px; margin-top: 6px;">
-                    💡 Get this from your GitHub/GitLab repository page (clone URL)
-                </div>
-            </div>
-        `;
-    }
-
-    // Buttons
-    html += `
-        <div style="display: flex; gap: 12px; margin-top: 20px;">
-            <button id="gitSetupCancel" style="
-                flex: 1;
-                background: #2a2a2a;
-                border: 1px solid #444;
-                border-radius: 6px;
-                padding: 10px;
-                color: #e0e0e0;
-                cursor: pointer;
-                font-size: 12px;
-                font-weight: 500;
-            ">Cancel</button>
-            <button id="gitSetupProceed" style="
-                flex: 1;
-                background: #667eea;
-                border: none;
-                border-radius: 6px;
-                padding: 10px;
-                color: white;
-                cursor: pointer;
-                font-size: 12px;
-                font-weight: 600;
-            ">Setup & Continue</button>
-        </div>
-    `;
-
-    content.innerHTML = html;
-    modal.appendChild(content);
-    document.body.appendChild(modal);
-
-    // Event handlers
-    document.getElementById('gitSetupCancel').addEventListener('click', () => {
-        modal.remove();
-    });
-
-    document.getElementById('gitSetupProceed').addEventListener('click', async () => {
-        const remoteUrl = document.getElementById('remoteUrlInput')?.value || gitSetupState.remoteUrl;
-        const shouldAutoInit = document.getElementById('autoGitInit')?.checked ?? false;
-
-        if (!remoteUrl) {
-            alert('Please enter a remote origin URL');
-            return;
-        }
-
-        modal.remove();
-        await setupGitRepository(shouldAutoInit, remoteUrl);
-    });
-}
-
-/**
- * Setup git repository (auto-execute with validation)
- */
-async function setupGitRepository(autoInit, remoteUrl) {
-    addMessage('🔧 Setting up git repository for GraphBus...', 'system');
-
-    try {
-        let commands = [];
-
-        // Step 1: Initialize git if needed
-        if (autoInit && !gitSetupState.isInitialized) {
-            addMessage('⏳ Initializing git repository...', 'system');
-            const initResult = await window.graphbus.runCommand('git init');
-            if (!initResult.success) {
-                throw new Error(`Git init failed: ${initResult.error}`);
-            }
-            addMessage('✅ Git repository initialized', 'system');
-            gitSetupState.isInitialized = true;
-        }
-
-        // Step 2: Add remote origin if needed
-        if (!gitSetupState.hasRemote) {
-            addMessage('⏳ Adding remote origin...', 'system');
-            const remoteResult = await window.graphbus.runCommand(`git remote add origin "${remoteUrl}"`);
-            if (!remoteResult.success) {
-                throw new Error(`Failed to add remote: ${remoteResult.error}`);
-            }
-            addMessage(`✅ Remote origin configured: ${remoteUrl}`, 'system');
-            gitSetupState.hasRemote = true;
-            gitSetupState.remoteUrl = remoteUrl;
-        }
-
-        // Step 3: Validate setup
-        const finalCheck = await checkGitStatus();
-        if (!finalCheck) {
-            throw new Error('Git setup validation failed');
-        }
-
-        addMessage('✅ Git repository is ready for GraphBus!', 'system');
-        return true;
-    } catch (error) {
-        addMessage(`❌ Git setup failed: ${error.message}`, 'system');
-        return false;
-    }
-}
-
-/**
- * Pre-flight check before graphbus init
- */
-async function preFlightCheckBeforeGraphBusInit() {
-    addMessage('🔍 Running pre-flight checks...', 'system');
-
-    const gitReady = await checkGitStatus();
-
-    if (!gitReady) {
-        addMessage('⚠️ Git setup required before initializing GraphBus', 'system');
-        showGitSetupDialog();
-        return false;
-    }
-
-    addMessage('✅ All pre-flight checks passed!', 'system');
-    return true;
-}
-
-/**
  * Show autocomplete suggestions (Warp-style)
  */
 function showAutocomplete(input, suggestions) {
@@ -1140,201 +893,6 @@ function showAutocomplete(input, suggestions) {
     });
 }
 
-// WebSocket state
-let wsConnected = false;
-let currentQuestionId = null;
-let ws = null;
-let wsReconnectAttempts = 0;
-const wsMaxReconnectAttempts = 10;
-let wsReconnectDelay = 1000;
-
-// Initialize WebSocket connection
-function initializeWebSocket() {
-    connectWebSocket();
-}
-
-// Connect to internal WebSocket server
-function connectWebSocket() {
-    try {
-        console.log('Connecting to internal WebSocket server...');
-        ws = new WebSocket('ws://localhost:8765');
-
-        ws.onopen = () => {
-            console.log('✅ WebSocket connected to internal server');
-            wsConnected = true;
-            wsReconnectAttempts = 0;
-            wsReconnectDelay = 1000;
-            updateWSConnectionStatus(true);
-        };
-
-        ws.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data);
-                handleWebSocketMessage(message);
-            } catch (error) {
-                console.error('Failed to parse WebSocket message:', error);
-            }
-        };
-
-        ws.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            addMessage(`❌ Connection error: ${error.message || 'Unknown error'}`, 'system');
-        };
-
-        ws.onclose = () => {
-            console.log('❌ WebSocket disconnected from internal server');
-            wsConnected = false;
-            updateWSConnectionStatus(false);
-            attemptReconnect();
-        };
-    } catch (error) {
-        console.error('Error initializing WebSocket:', error);
-        updateWSConnectionStatus(false);
-    }
-}
-
-// Handle incoming WebSocket messages
-function handleWebSocketMessage(message) {
-    const { type, data } = message;
-    console.log('[WebSocket] Received:', type);
-
-    switch (type) {
-        case 'agent_message':
-            {
-                const { agent, text, metadata, timestamp } = data;
-                const formattedMessage = `🤖 ${agent}: ${text}`;
-                addMessage(formattedMessage, 'assistant');
-
-                // Also send to Claude for context
-                if (workflowState.claudeInitialized) {
-                    window.graphbus.claudeAddSystemMessage(`Agent message from ${agent}: ${text}`);
-                }
-            }
-            break;
-
-        case 'progress':
-            {
-                const { current, total, message: progressMsg, percent } = data;
-                const msg = progressMsg || `Progress: ${current}/${total} (${percent}%)`;
-                addMessage(`📊 ${msg}`, 'system');
-            }
-            break;
-
-        case 'question':
-            {
-                const { question_id, question, options, context } = data;
-                currentQuestionId = question_id;
-
-                // Format options for display
-                let questionText = question;
-                if (context) {
-                    questionText = `${context}\n\n${question}`;
-                }
-                if (options && options.length > 0) {
-                    questionText += '\n\nOptions:';
-                    options.forEach((opt, i) => {
-                        questionText += `\n${i + 1}. ${opt}`;
-                    });
-                }
-
-                showPromptModal(questionText);
-            }
-            break;
-
-        case 'error':
-            {
-                const errorMsg = data.message || 'Unknown error';
-                addMessage(`❌ Error: ${errorMsg}`, 'system');
-                console.error('WebSocket error:', data);
-            }
-            break;
-
-        case 'result':
-            {
-                addMessage(`✅ Operation completed successfully`, 'system');
-                console.log('WebSocket result:', data);
-            }
-            break;
-
-        default:
-            console.warn(`Unknown message type: ${type}`);
-    }
-}
-
-// Attempt to reconnect with exponential backoff
-function attemptReconnect() {
-    if (wsReconnectAttempts >= wsMaxReconnectAttempts) {
-        console.error('Max reconnection attempts reached');
-        addMessage('⚠️ Failed to reconnect to WebSocket server after multiple attempts', 'system');
-        return;
-    }
-
-    wsReconnectAttempts++;
-    const delay = wsReconnectDelay * Math.pow(2, wsReconnectAttempts - 1);
-
-    console.log(`Attempting to reconnect (${wsReconnectAttempts}/${wsMaxReconnectAttempts}) in ${delay}ms...`);
-
-    setTimeout(() => {
-        connectWebSocket();
-    }, delay);
-}
-
-// Send message through WebSocket
-function wsSendMessage(text, metadata = {}) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        const message = {
-            type: 'user_message',
-            data: {
-                text: text,
-                metadata: metadata,
-                timestamp: Date.now()
-            }
-        };
-        ws.send(JSON.stringify(message));
-    } else {
-        console.warn('WebSocket not connected, cannot send message');
-    }
-}
-
-// Send answer to question through WebSocket
-function wsSendAnswer(questionId, answer) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-        const message = {
-            type: 'answer',
-            data: {
-                question_id: questionId,
-                answer: answer
-            }
-        };
-        ws.send(JSON.stringify(message));
-    } else {
-        console.warn('WebSocket not connected, cannot send answer');
-    }
-}
-
-// Update WebSocket connection status indicator
-function updateWSConnectionStatus(connected) {
-    const statusDot = document.getElementById('statusDot');
-    const statusLabel = document.getElementById('graphStatus');
-
-    if (connected) {
-        if (statusDot) {
-            statusDot.style.background = '#4ade80';
-            statusDot.title = 'Connected to GraphBus CLI';
-        }
-        if (statusLabel) {
-            statusLabel.textContent = 'CLI Connected';
-        }
-    } else {
-        if (statusDot) {
-            statusDot.style.background = '#888';
-            statusDot.title = 'Not connected to GraphBus CLI';
-        }
-        if (statusLabel) {
-            statusLabel.textContent = 'CLI Disconnected';
-        }
-    }
-}
 
 // Update system state display
 function updateSystemStateDisplay() {
@@ -2253,11 +1811,7 @@ async function executeClaudeAction(action, params) {
                 if (params.command) {
                     // Pre-flight check for graphbus init
                     if (params.command.includes('graphbus init')) {
-                        const gitReady = await preFlightCheckBeforeGraphBusInit();
-                        if (!gitReady) {
-                            console.log('[Git] Skipping graphbus init - git setup required');
-                            return;
-                        }
+
                     }
                     await runShellCommand(params.command);
                 }
@@ -2499,135 +2053,6 @@ async function runShellCommand(command) {
     }
 }
 
-// Handle PR creation after negotiation completes
-async function handleNegotiationPR(command, output, messageElement) {
-    try {
-        // Generate UUID for this negotiation
-        const negotiationId = crypto.randomUUID().split('-')[0];
-
-        // Extract intent from command or output
-        const intentMatch = command.match(/--intent\s+"([^"]+)"/) || command.match(/--intent\s+(\S+)/);
-        const intent = intentMatch ? intentMatch[1] : 'code-improvements';
-
-        // Create branch name
-        const branchName = `graphbus/negotiate-${intent.replace(/\s+/g, '-').toLowerCase()}-${negotiationId}`;
-
-        // Extract commit count
-        const commitMatch = output.match(/Total commits: (\d+)/);
-        const commitCount = commitMatch ? parseInt(commitMatch[1]) : 0;
-
-        if (messageElement) {
-            messageElement.textContent += `\n🔀 Creating Git branch: ${branchName}...\n`;
-        }
-
-        // Create branch
-        const branchResult = await window.graphbus.gitCreateBranch(branchName);
-        if (!branchResult.success) {
-            if (messageElement) {
-                messageElement.textContent += `✗ Failed to create branch: ${branchResult.error}\n`;
-            }
-            return;
-        }
-
-        if (messageElement) {
-            messageElement.textContent += `✓ Branch created\n`;
-            messageElement.textContent += `📤 Committing and pushing changes...\n`;
-        }
-
-        // Commit and push
-        const commitMessage = `GraphBus negotiation: ${intent}\n\nNegotiation ID: ${negotiationId}\nCommits applied: ${commitCount}`;
-        const pushResult = await window.graphbus.gitCommitAndPush(commitMessage, branchName);
-
-        if (!pushResult.success) {
-            if (messageElement) {
-                messageElement.textContent += `✗ Failed to push: ${pushResult.error}\n`;
-            }
-            return;
-        }
-
-        if (messageElement) {
-            messageElement.textContent += `✓ Changes pushed to ${branchName}\n`;
-            messageElement.textContent += `🔨 Creating GitHub PR...\n`;
-        }
-
-        // Create PR
-        const prTitle = `GraphBus: ${intent}`;
-        const prBody = `## Negotiation Summary\n\n**Intent:** ${intent}\n**Negotiation ID:** ${negotiationId}\n**Commits:** ${commitCount}\n\n### Changes\n\nThis PR was automatically generated by GraphBus multi-agent negotiation.\n\n---\n\n*To trigger another negotiation round, comment on this PR with your feedback.*`;
-
-        const prResult = await window.graphbus.githubCreatePR(prTitle, prBody, branchName);
-
-        if (!prResult.success) {
-            if (messageElement) {
-                messageElement.textContent += `✗ Failed to create PR: ${prResult.error}\n`;
-            }
-            return;
-        }
-
-        if (messageElement) {
-            messageElement.textContent += `✓ PR created: ${prResult.url}\n`;
-        }
-
-        // Track PR
-        await window.graphbus.prSaveTracking({
-            negotiationId,
-            intent,
-            branchName,
-            prNumber: prResult.number,
-            prUrl: prResult.url,
-            commitCount
-        });
-
-        addMessage(`🎉 Pull Request created!\n\n📋 Intent: ${intent}\n🔗 URL: ${prResult.url}\n🌿 Branch: ${branchName}\n\nReview the PR and add comments to trigger the next negotiation round.`, 'system');
-
-    } catch (error) {
-        console.error('Error creating PR:', error);
-        if (messageElement) {
-            messageElement.textContent += `\n✗ Error: ${error.message}\n`;
-        }
-    }
-}
-
-// Run negotiation via WebSocket
-async function runNegotiationViaWebSocket(command) {
-    // Parse the negotiate command to extract intent and rounds
-    // Format: graphbus negotiate .graphbus --intent "..." --rounds N
-    const intentMatch = command.match(/--intent\s+"([^"]+)"/);
-    const roundsMatch = command.match(/--rounds\s+(\d+)/);
-    const artifactsDirMatch = command.match(/negotiate\s+(\S+)/);
-
-    const intent = intentMatch ? intentMatch[1] : 'User intent';
-    const rounds = roundsMatch ? parseInt(roundsMatch[1]) : 5;
-    const artifactsDir = artifactsDirMatch ? artifactsDirMatch[1] : '.graphbus';
-
-    addMessage(`🚀 Starting negotiation via WebSocket...`, 'system');
-    addMessage(`   Intent: ${intent}`, 'system');
-    addMessage(`   Rounds: ${rounds}`, 'system');
-
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-        addMessage(`❌ WebSocket not connected`, 'system');
-        return;
-    }
-
-    // Send negotiation request through WebSocket
-    const negotiationMessage = {
-        type: 'negotiate',
-        data: {
-            intent: intent,
-            rounds: rounds,
-            artifactsDir: artifactsDir
-        }
-    };
-
-    try {
-        ws.send(JSON.stringify(negotiationMessage));
-        console.log('[Negotiation] Sent negotiation request via WebSocket');
-        addMessage(`📡 Sent negotiation request to server`, 'system');
-    } catch (error) {
-        console.error('Failed to send negotiation request:', error);
-        addMessage(`❌ Failed to send negotiation request: ${error.message}`, 'system');
-    }
-}
-
 // Execute command with streaming output
 async function runStreamingCommand(command) {
     let streamingMessageElement = null;
@@ -2839,9 +2264,9 @@ async function runStreamingCommand(command) {
         }
 
         // Cleanup listeners
-        window.graphbus.onCommandOutput(() => {});
-        window.graphbus.onCommandComplete(() => {});
-        window.graphbus.onCommandError(() => {});
+        window.graphbus.onCommandOutput(() => { });
+        window.graphbus.onCommandComplete(() => { });
+        window.graphbus.onCommandError(() => { });
 
         // Check if this was a build command and auto-negotiation is pending
         if (command.includes('graphbus build') && command.includes('--enable-agents') && pendingAutoNegotiation) {
@@ -2858,12 +2283,6 @@ async function runStreamingCommand(command) {
             }, 500);
 
             return; // Don't proceed with other handlers yet
-        }
-
-        // Check if negotiation resulted in commits and handle Git/PR workflow
-        const commitMatch = fullOutput.match(/Total commits: (\d+)/);
-        if (commitMatch && parseInt(commitMatch[1]) > 0) {
-            await handleNegotiationPR(command, fullOutput, streamingMessageElement);
         }
 
         await window.graphbus.claudeAddSystemMessage(`Command completed. Output: ${fullOutput}`);
@@ -3018,7 +2437,7 @@ function parseAndDisplayNegotiation(output) {
             addMessage(`\n⚠️ Issues Detected:`, 'system');
             errorLines.forEach(line => {
                 if (line.trim()) {
-                    addMessage(`  ${line.trim()}`, 'system');
+                    addMessage(`  ${line.trim()}`, 'assistant');
                 }
             });
         }
@@ -3373,7 +2792,7 @@ async function loadStateFile(filename, event) {
 }
 
 function formatStateData(filename, data) {
-    switch(filename) {
+    switch (filename) {
         case 'graph.json':
             return formatGraph(data);
         case 'agents.json':
@@ -3736,17 +3155,18 @@ async function initializeWorkingDirectory() {
 
 // Update working directory display
 function updateWorkingDirectoryDisplay() {
-    const pathElement = document.getElementById('workingDirPath');
-    if (!pathElement) return;
+    const displayElement = document.getElementById('workingDirectoryDisplay');
+    if (displayElement) {
+        if (!workingDirectory) {
+            displayElement.textContent = 'No project open';
+            return;
+        }
 
-    // Show shortened path (last 2 segments)
-    const segments = workingDirectory.split('/').filter(s => s);
-    const shortPath = segments.length > 2
-        ? '.../' + segments.slice(-2).join('/')
-        : workingDirectory;
-
-    pathElement.textContent = shortPath;
-    pathElement.title = `Click to change\nFull path: ${workingDirectory}`;
+        const parts = workingDirectory.split('/');
+        const dirName = parts[parts.length - 1] || parts[parts.length - 2];
+        displayElement.textContent = dirName;
+        displayElement.title = workingDirectory;
+    }
 }
 
 // Handle working directory click
@@ -3856,7 +3276,7 @@ function buildFileTreeHTML(files, basePath) {
         });
     });
 
-    return renderTreeNode(tree, basePath);
+    return renderTreeNode(tree, basePath, 0);
 }
 
 /**
@@ -4260,9 +3680,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Initialize Claude first (needed for project creation)
     const claudeReady = await initializeClaude();
 
-    // Initialize WebSocket event listeners
-    initializeWebSocket();
-
     // Check if there's an existing project or show welcome screen
     const hasExistingProject = await checkForExistingProject();
 
@@ -4446,6 +3863,7 @@ let selectedTemplate = 'blank';
 let newProjectDirectory = null;
 
 function showWelcomeScreen() {
+    console.log('[DEBUG] showWelcomeScreen called');
     document.getElementById('welcomeScreen').style.display = 'flex';
     document.querySelector('.main-layout').style.display = 'none';
 }
@@ -4456,11 +3874,24 @@ function hideWelcomeScreen() {
 }
 
 function showNewProjectForm() {
-    document.getElementById('newProjectForm').style.display = 'flex';
+    console.log('[DEBUG] showNewProjectForm called');
+
+    // Hide welcome screen
+    document.getElementById('welcomeScreen').style.display = 'none';
+
+    // Show modal
+    const modal = document.getElementById('newProjectForm');
+    modal.style.display = 'flex';
+    modal.style.alignItems = 'center';
+    modal.style.justifyContent = 'center';
 }
 
 function closeNewProjectForm() {
     document.getElementById('newProjectForm').style.display = 'none';
+
+    // Show welcome screen again
+    document.getElementById('welcomeScreen').style.display = 'flex';
+
     // Reset form
     document.getElementById('newProjectPath').value = '';
     document.getElementById('projectDescription').value = '';
@@ -4470,8 +3901,10 @@ function closeNewProjectForm() {
 }
 
 async function browseNewProjectDirectory() {
+    console.log('[DEBUG] browseNewProjectDirectory called');
     try {
         const result = await window.graphbus.browseDirectory();
+        console.log('[DEBUG] browseDirectory result:', result);
 
         if (result.success && result.result) {
             const selectedPath = result.result;
@@ -4524,6 +3957,9 @@ async function createNewProject() {
     closeNewProjectForm();
     hideWelcomeScreen();
 
+    // Show main layout
+    document.querySelector('.main-layout').style.display = 'flex';
+
     // Switch to conversation view
     switchView('conversation');
 
@@ -4565,6 +4001,7 @@ async function createNewProject() {
 }
 
 async function openExistingProject() {
+    console.log('[DEBUG] openExistingProject called');
     try {
         const result = await window.graphbus.browseDirectory();
 
@@ -4601,16 +4038,22 @@ async function openExistingProject() {
 
 // Check if we should show welcome screen on startup
 async function checkForExistingProject() {
-    const result = await window.graphbus.rehydrateState(workingDirectory);
+    try {
+        const result = await window.graphbus.rehydrateState(workingDirectory);
 
-    if (!result.success || !result.result || !result.result.hasGraphbus) {
-        // No existing project - show welcome screen
+        if (!result.success || !result.result || !result.result.hasGraphbus) {
+            // No existing project - show welcome screen
+            showWelcomeScreen();
+            return false;
+        }
+
+        // Has existing project - load it
+        return true;
+    } catch (error) {
+        console.error('Error checking for existing project:', error);
         showWelcomeScreen();
         return false;
     }
-
-    // Has existing project - load it
-    return true;
 }
 
 // ===========================
@@ -4747,93 +4190,9 @@ async function refreshPRComments() {
     }
 }
 
-// Post comment to GitHub PR
-async function postGitHubComment() {
-    if (!currentSelectedPR) {
-        addMessage('❌ No PR selected', 'system');
-        return;
-    }
 
-    const feedback = document.getElementById('prFeedbackInput').value.trim();
-    if (!feedback) {
-        addMessage('❌ Please enter feedback before posting', 'system');
-        return;
-    }
 
-    addMessage('💬 Posting comment to GitHub...', 'system');
 
-    try {
-        const result = await window.graphbus.runCommand(
-            `gh pr comment ${currentSelectedPR.prNumber} --body "${feedback.replace(/"/g, '\\"')}"`
-        );
-
-        if (result.success) {
-            addMessage('✅ Comment posted successfully!', 'system');
-            document.getElementById('prFeedbackInput').value = '';
-
-            // Refresh comments to show new one
-            setTimeout(() => refreshPRComments(), 1000);
-        } else {
-            addMessage(`❌ Failed to post comment: ${result.error}`, 'system');
-        }
-    } catch (error) {
-        console.error('Error posting comment:', error);
-        addMessage(`❌ Error: ${error.message}`, 'system');
-    }
-}
-
-// Continue negotiation from PR feedback
-async function continueNegotiationFromPR() {
-    if (!currentSelectedPR) {
-        addMessage('❌ No PR selected', 'system');
-        return;
-    }
-
-    const feedback = document.getElementById('prFeedbackInput').value.trim();
-    if (!feedback) {
-        addMessage('❌ Please enter feedback before continuing negotiation', 'system');
-        return;
-    }
-
-    // Post comment first
-    await postGitHubComment();
-
-    // Switch to conversation view
-    switchView('conversation');
-
-    // Prepare negotiation with PR context
-    addMessage(`🔄 Starting negotiation round with PR context...`, 'system');
-    addMessage(`📋 Original intent: "${currentSelectedPR.intent}"`, 'system');
-    addMessage(`💬 New feedback: "${feedback}"`, 'system');
-
-    try {
-        // Retrieve all PR comments for context
-        const commentsResult = await window.graphbus.githubGetPRComments(currentSelectedPR.prNumber);
-        let prContext = `Previous negotiation PR #${currentSelectedPR.prNumber}\nOriginal intent: ${currentSelectedPR.intent}\n\n`;
-
-        if (commentsResult.success && commentsResult.comments) {
-            prContext += 'PR Discussion:\n';
-            commentsResult.comments.forEach(c => {
-                prContext += `- @${c.user.login}: ${c.body}\n`;
-            });
-        }
-
-        // Build negotiation command with context and feedback
-        const contextualIntent = `${currentSelectedPR.intent}\n\nContext from PR #${currentSelectedPR.prNumber}:\n${prContext}\n\nNew guidance: ${feedback}`;
-
-        const rounds = 5;
-        const command = `graphbus negotiate .graphbus --intent "${contextualIntent.replace(/"/g, '\\"')}" --rounds ${rounds}`;
-
-        addMessage(`🚀 Running: graphbus negotiate with updated intent...`, 'system');
-
-        // Execute negotiation with streaming
-        await runStreamingCommand(command);
-
-    } catch (error) {
-        console.error('Error continuing negotiation:', error);
-        addMessage(`❌ Error: ${error.message}`, 'system');
-    }
-}
 
 // Format timestamp as "X ago"
 function formatTimeAgo(timestamp) {
@@ -4852,12 +4211,10 @@ function formatTimeAgo(timestamp) {
 
 // Update switchView to load PR list when switching to PR review
 const originalSwitchView = switchView;
-switchView = function(viewName) {
+switchView = function (viewName) {
     originalSwitchView(viewName);
 
-    if (viewName === 'pr-review') {
-        refreshPRList();
-    }
+
 };
 
 // Interactive prompt modal functions
@@ -4895,33 +4252,19 @@ async function submitPromptResponse() {
     modal.style.display = 'none';
     inputEl.value = '';
 
-    // If this is a WebSocket question, send as answer
-    if (currentQuestionId) {
-        try {
-            wsSendAnswer(currentQuestionId, response);
-            console.log('Sent WebSocket answer:', currentQuestionId, response);
+    // Send response to stdin
+    try {
+        const result = await window.graphbus.sendStdin(response);
+        if (result.success) {
+            console.log('Sent response to process stdin:', response);
             addMessage(`✓ You answered: ${response}`, 'user');
-            currentQuestionId = null; // Clear the question ID
-        } catch (error) {
-            console.error('Error sending WebSocket answer:', error);
-            addMessage(`⚠️ Error: ${error.message}`, 'system');
-            currentQuestionId = null;
+        } else {
+            console.error('Failed to send response to stdin:', result.error);
+            addMessage(`⚠️ Failed to send response: ${result.error}`, 'system');
         }
-    }
-    // Otherwise send as stdin (for legacy CLI prompts)
-    else {
-        try {
-            const result = await window.graphbus.sendStdin(response);
-            if (result.success) {
-                console.log('Sent response to process stdin:', response);
-            } else {
-                console.error('Failed to send response to stdin:', result.error);
-                addMessage(`⚠️ Failed to send response: ${result.error}`, 'system');
-            }
-        } catch (error) {
-            console.error('Error sending response to stdin:', error);
-            addMessage(`⚠️ Error: ${error.message}`, 'system');
-        }
+    } catch (error) {
+        console.error('Error sending response to stdin:', error);
+        addMessage(`⚠️ Error: ${error.message}`, 'system');
     }
 }
 

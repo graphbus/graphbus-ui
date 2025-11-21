@@ -43,19 +43,6 @@ contextBridge.exposeInMainWorld('graphbus', {
     onCommandPrompt: (callback) => ipcRenderer.on('command-prompt', (event, data) => callback(data)),
     sendStdin: (input) => ipcRenderer.invoke('system:send-stdin', input),
 
-    // WebSocket communication
-    wsSendMessage: (text, metadata) => ipcRenderer.invoke('ws:send-message', text, metadata),
-    wsSendAnswer: (questionId, answer) => ipcRenderer.invoke('ws:send-answer', questionId, answer),
-    wsIsConnected: () => ipcRenderer.invoke('ws:is-connected'),
-    wsReconnect: () => ipcRenderer.invoke('ws:reconnect'),
-    onWsConnected: (callback) => ipcRenderer.on('ws-connected', callback),
-    onWsDisconnected: (callback) => ipcRenderer.on('ws-disconnected', callback),
-    onWsAgentMessage: (callback) => ipcRenderer.on('ws-agent-message', (event, data) => callback(data)),
-    onWsProgress: (callback) => ipcRenderer.on('ws-progress', (event, data) => callback(data)),
-    onWsQuestion: (callback) => ipcRenderer.on('ws-question', (event, data) => callback(data)),
-    onWsError: (callback) => ipcRenderer.on('ws-error', (event, data) => callback(data)),
-    onWsResult: (callback) => ipcRenderer.on('ws-result', (event, data) => callback(data)),
-
     // Claude AI operations
     claudeInitialize: (apiKey, shouldSave = true) => ipcRenderer.invoke('claude:initialize', apiKey, shouldSave),
     claudeChat: (message, systemState) => ipcRenderer.invoke('claude:chat', message, systemState),
@@ -69,11 +56,7 @@ contextBridge.exposeInMainWorld('graphbus', {
     conversationLoad: () => ipcRenderer.invoke('conversation:load'),
     conversationClear: () => ipcRenderer.invoke('conversation:clear'),
 
-    // Git and GitHub integration
-    gitCreateBranch: (branchName) => ipcRenderer.invoke('git:create-branch', branchName),
-    gitCommitAndPush: (message, branchName) => ipcRenderer.invoke('git:commit-and-push', message, branchName),
-    githubCreatePR: (title, body, branchName) => ipcRenderer.invoke('github:create-pr', title, body, branchName),
-    githubGetPRComments: (prNumber) => ipcRenderer.invoke('github:get-pr-comments', prNumber),
+
     prSaveTracking: (prData) => ipcRenderer.invoke('pr:save-tracking', prData),
     prLoadTracking: () => ipcRenderer.invoke('pr:load-tracking'),
 
