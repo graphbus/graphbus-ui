@@ -762,9 +762,12 @@ async function rehydrateState(dir) {
 }
 
 // Listen for initial working directory from main process (when passed via CLI args)
+let initialWorkingDirReceived = false; // Flag to track if CLI dir was passed
+
 window.menu.onInitialWorkingDirectory((dir) => {
     console.log('[Renderer] Received initial working directory:', dir);
     workingDirectory = dir;
+    initialWorkingDirReceived = true;
 
     // Function to show main layout and hide welcome screen
     function showMainLayout() {
@@ -777,6 +780,9 @@ window.menu.onInitialWorkingDirectory((dir) => {
         if (mainLayout) {
             mainLayout.classList.add('visible');
         }
+
+        // Switch to terminal view
+        switchView('conversation');
     }
 
     // Wait for DOM to be ready before hiding welcome screen
@@ -4606,33 +4612,36 @@ document.addEventListener('DOMContentLoaded', async () => {
         workingDirElement.addEventListener('click', changeWorkingDirectory);
     }
 
-    // Initialize working directory first
-    await initializeWorkingDirectory();
+    // Skip this if a working directory was already provided via CLI
+    if (!initialWorkingDirReceived) {
+        // Initialize working directory first
+        await initializeWorkingDirectory();
 
-    // Initialize Claude first (needed for project creation)
-    const claudeReady = await initializeClaude();
+        // Initialize Claude first (needed for project creation)
+        const claudeReady = await initializeClaude();
 
-    // Check if there's an existing project or show welcome screen
-    const hasExistingProject = await checkForExistingProject();
+        // Check if there's an existing project or show welcome screen
+        const hasExistingProject = await checkForExistingProject();
 
-    if (hasExistingProject) {
-        // Has existing project - rehydrate state
-        await checkAndLoadExistingState();
+        if (hasExistingProject) {
+            // Has existing project - rehydrate state
+            await checkAndLoadExistingState();
 
-        // Start polling on load
-        startStatusPolling();
+            // Start polling on load
+            startStatusPolling();
 
-        if (claudeReady) {
-            // Claude is ready, start orchestration
-            setTimeout(() => orchestrateWorkflow(), 500);
+            if (claudeReady) {
+                // Claude is ready, start orchestration
+                setTimeout(() => orchestrateWorkflow(), 500);
+            } else {
+                // Claude not ready - show setup message
+                workflowState.phase = 'initial';
+                setTimeout(() => orchestrateWorkflow(), 500);
+            }
         } else {
-            // Claude not ready - show setup message
-            workflowState.phase = 'initial';
-            setTimeout(() => orchestrateWorkflow(), 500);
+            // No existing project - welcome screen is already shown by checkForExistingProject()
+            // User will choose to create new or open existing project
         }
-    } else {
-        // No existing project - welcome screen is already shown by checkForExistingProject()
-        // User will choose to create new or open existing project
     }
 
     // Set up menu event listeners
