@@ -1890,7 +1890,29 @@ async function intelligentMethodCall(command) {
 
 // Chat functions
 function addMessage(text, type = 'assistant') {
+    // If terminal is initialized, write to terminal instead
+    if (xterm && terminalInitialized) {
+        // Add type indicator
+        const typeIcon = type === 'assistant' ? '🤖' : type === 'user' ? '👤' : '📢';
+        const typeLabel = type === 'assistant' ? 'Assistant' : type === 'user' ? 'User' : 'System';
+
+        // Write formatted message to terminal
+        const lines = text.split('\n');
+        xterm.writeln(`\r\n${typeIcon} [${typeLabel}]`);
+
+        lines.forEach(line => {
+            if (line) {
+                xterm.writeln(`  ${line}\r`);
+            }
+        });
+
+        xterm.write('\r$ ');
+        return;
+    }
+
+    // Fallback: original message display (if #messages exists)
     const messages = document.getElementById('messages');
+    if (!messages) return;
 
     // Create message wrapper
     const msgWrapper = document.createElement('div');
