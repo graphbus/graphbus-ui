@@ -18,7 +18,7 @@ let systemMemoryUsage = '--'; // Memory usage percentage
 let systemStorageUsage = '--'; // Storage usage percentage
 let systemResourcesInterval = null; // Timer for resource updates
 let graphbusVersion = 'unknown'; // GraphBus CLI version
-let graphbusUiVersion = '1.0.0'; // GraphBus UI version (from package.json)
+let graphbusUiVersion = '0.1.5'; // GraphBus UI version (from package.json)
 const knownCommands = ['ls', 'cd', 'pwd', 'cat', 'echo', 'mkdir', 'rm', 'cp', 'mv', 'chmod', 'sudo', 'grep', 'find', 'git', 'npm', 'node', 'python', 'graphbus', 'help', 'clear', 'exit', 'build', 'negotiate', 'run', 'validate', 'status', 'env', 'history', 'top', 'df', 'ps'];
 
 // Initialize CodeMirror editor (using CodeMirror 5)
