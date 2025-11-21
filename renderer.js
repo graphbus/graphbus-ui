@@ -11,7 +11,13 @@ let terminalMode = 'auto'; // Terminal input mode: 'auto', 'cmd', or 'prompt'
 let commandHistory = []; // Track command history
 let historyIndex = -1; // Current position in history
 let currentUser = 'user'; // Current user
-const knownCommands = ['ls', 'cd', 'pwd', 'cat', 'echo', 'mkdir', 'rm', 'cp', 'mv', 'chmod', 'sudo', 'grep', 'find', 'git', 'npm', 'node', 'python', 'graphbus', 'help', 'clear', 'exit', 'build', 'negotiate', 'run', 'validate', 'status'];
+let currentHostname = 'localhost'; // Current hostname
+let currentIpAddress = '127.0.0.1'; // Current IP address
+let systemCpuUsage = '--'; // CPU usage percentage
+let systemMemoryUsage = '--'; // Memory usage percentage
+let systemStorageUsage = '--'; // Storage usage percentage
+let systemResourcesInterval = null; // Timer for resource updates
+const knownCommands = ['ls', 'cd', 'pwd', 'cat', 'echo', 'mkdir', 'rm', 'cp', 'mv', 'chmod', 'sudo', 'grep', 'find', 'git', 'npm', 'node', 'python', 'graphbus', 'help', 'clear', 'exit', 'build', 'negotiate', 'run', 'validate', 'status', 'env', 'history', 'top', 'df', 'ps'];
 
 // Initialize CodeMirror editor (using CodeMirror 5)
 function initializeCodeMirror() {
@@ -80,45 +86,84 @@ function getHistoryCommand(direction) {
     return historyIndex >= 0 ? commandHistory[commandHistory.length - 1 - historyIndex] : '';
 }
 
+// Fetch system resource information
+async function fetchSystemResources() {
+    try {
+        // Get CPU usage
+        const cpuResult = await window.graphbus.runCommand("ps aux | awk 'NR>1 {sum+=$3} END {print int(sum)}'");
+        if (cpuResult.success) {
+            const cpu = (cpuResult.result.stdout || '0').trim();
+            systemCpuUsage = cpu ? `${cpu}%` : '--';
+        }
+
+        // Get memory usage
+        const memResult = await window.graphbus.runCommand("vm_stat | grep 'Pages in' | awk '{print int($3*4096/(1024*1024*1024))}'");
+        if (memResult.success) {
+            const mem = (memResult.result.stdout || '0').trim();
+            systemMemoryUsage = mem ? `${mem}GB` : '--';
+        }
+
+        // Get storage usage
+        const storageResult = await window.graphbus.runCommand("df -h / | tail -1 | awk '{print $5}'");
+        if (storageResult.success) {
+            const storage = (storageResult.result.stdout || '--').trim();
+            systemStorageUsage = storage || '--';
+        }
+
+        // Update display
+        updateSystemResourcesDisplay();
+    } catch (error) {
+        console.error('Error fetching system resources:', error);
+    }
+}
+
+// Update system resources in the info bar
+function updateSystemResourcesDisplay() {
+    const cpuEl = document.getElementById('terminalCpu');
+    const memEl = document.getElementById('terminalMemory');
+    const storageEl = document.getElementById('terminalStorage');
+
+    if (cpuEl) cpuEl.textContent = systemCpuUsage;
+    if (memEl) memEl.textContent = systemMemoryUsage;
+    if (storageEl) storageEl.textContent = systemStorageUsage;
+}
+
 // Update terminal info display
 function updateTerminalInfo() {
     const cwdElement = document.getElementById('terminalCwd');
     const cwdPrompt = document.getElementById('terminalPromptCwd');
     const userElement = document.getElementById('terminalUser');
     const userPrompt = document.getElementById('terminalPromptUser');
-    const envElement = document.getElementById('terminalEnv');
+    const ipElement = document.getElementById('terminalIp');
 
+    // Display full working directory (pwd)
     if (cwdElement && workingDirectory) {
-        const displayPath = workingDirectory === '/' ? '/' : workingDirectory.split('/').pop() || workingDirectory;
-        cwdElement.textContent = displayPath;
+        cwdElement.textContent = workingDirectory;
         cwdElement.title = workingDirectory;
     }
 
+    // Display condensed path in prompt
     if (cwdPrompt && workingDirectory) {
-        const displayPath = workingDirectory === '/' ? '~' : workingDirectory.split('/').pop() || '~';
+        const displayPath = workingDirectory === '/' ? '~' : workingDirectory.startsWith('/Users/')
+            ? workingDirectory.substring(workingDirectory.lastIndexOf('/') + 1) || workingDirectory
+            : workingDirectory;
         cwdPrompt.textContent = displayPath;
     }
 
+    // Display user@hostname
     if (userElement) {
-        userElement.textContent = currentUser;
+        const userhost = `${currentUser}@${currentHostname}`;
+        userElement.textContent = userhost;
     }
 
     if (userPrompt) {
         userPrompt.textContent = currentUser;
     }
 
-    if (envElement) {
-        const env = detectEnvironment();
-        envElement.textContent = env;
+    // Display IP address
+    if (ipElement) {
+        ipElement.textContent = currentIpAddress;
     }
-}
-
-// Detect active environment (Python venv, Node, etc.)
-function detectEnvironment() {
-    if (workingDirectory && workingDirectory.includes('node_modules')) return 'Node.js';
-    if (workingDirectory && (workingDirectory.includes('venv') || workingDirectory.includes('env'))) return 'Python venv';
-    // Could check for conda, etc.
-    return 'system';
 }
 
 // Show autocomplete suggestions
@@ -154,33 +199,45 @@ function showAutocomplete(input) {
     });
 }
 
-// Show command history view
-function showCommandHistory() {
+// Execute history command
+async function executeHistoryCommand() {
     writeTerminal('╔════════════════════════════════════════════════════════════╗', 'header');
-    writeTerminal('║  📜 Command History (Last 20 commands)                     ║', 'header');
+    writeTerminal('║  📜 Command History                                        ║', 'header');
     writeTerminal('╚════════════════════════════════════════════════════════════╝', 'header');
 
     if (commandHistory.length === 0) {
-        writeTerminal('(No command history yet)');
+        writeTerminal('(No command history yet)', 'warning');
         return;
     }
 
-    const recentCommands = commandHistory.slice(-20).reverse();
+    const recentCommands = commandHistory.slice(-50); // Show last 50
     recentCommands.forEach((cmd, i) => {
-        writeTerminal(`  ${(i + 1).toString().padStart(2)}) ${cmd}`);
+        const lineNum = (commandHistory.length - recentCommands.length + i + 1).toString().padStart(4);
+        writeTerminal(`  ${lineNum}  ${cmd}`);
     });
 }
 
-// Show environment variables
-function showEnvironmentVariables() {
+// Execute env command
+async function executeEnvCommand() {
     writeTerminal('╔════════════════════════════════════════════════════════════╗', 'header');
     writeTerminal('║  🌍 Environment Variables                                  ║', 'header');
     writeTerminal('╚════════════════════════════════════════════════════════════╝', 'header');
-    writeTerminal(`USER: ${currentUser}`);
-    writeTerminal(`PWD: ${workingDirectory || '/'}`);
-    writeTerminal(`MODE: ${terminalMode}`);
-    writeTerminal('');
-    writeTerminal('Use "env" or "printenv" command to see more details');
+
+    try {
+        const result = await window.graphbus.runCommand('env');
+        if (result.success) {
+            const envOutput = (result.result.stdout || result.result || '').split('\n');
+            envOutput.forEach(line => {
+                if (line.trim()) {
+                    writeTerminal(line);
+                }
+            });
+        } else {
+            writeTerminal('Failed to get environment variables', 'error');
+        }
+    } catch (error) {
+        writeTerminal(`Error: ${error.message}`, 'error');
+    }
 }
 
 // Use Claude Haiku to classify input as command or prompt
@@ -309,6 +366,13 @@ function initializeTerminal() {
     // Update terminal info display
     updateTerminalInfo();
 
+    // Fetch system resources initially and then every 5 seconds
+    fetchSystemResources();
+    if (systemResourcesInterval) clearInterval(systemResourcesInterval);
+    systemResourcesInterval = setInterval(() => {
+        fetchSystemResources();
+    }, 5000);
+
     // Write welcome message
     writeTerminal('╔════════════════════════════════════════════════════════════╗', 'header');
     writeTerminal('║  📡 GraphBus Terminal - Claude AI Orchestration             ║', 'header');
@@ -336,16 +400,16 @@ function initializeTerminal() {
 
     // Handle Env button
     if (envVarsBtn) {
-        envVarsBtn.addEventListener('click', () => {
-            showEnvironmentVariables();
+        envVarsBtn.addEventListener('click', async () => {
+            await executeEnvCommand();
             inputField.focus();
         });
     }
 
     // Handle History button
     if (historyBtn) {
-        historyBtn.addEventListener('click', () => {
-            showCommandHistory();
+        historyBtn.addEventListener('click', async () => {
+            await executeHistoryCommand();
             inputField.focus();
         });
     }
