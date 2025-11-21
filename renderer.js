@@ -17,6 +17,8 @@ let systemCpuUsage = '--'; // CPU usage percentage
 let systemMemoryUsage = '--'; // Memory usage percentage
 let systemStorageUsage = '--'; // Storage usage percentage
 let systemResourcesInterval = null; // Timer for resource updates
+let graphbusVersion = 'unknown'; // GraphBus CLI version
+let graphbusUiVersion = '1.0.0'; // GraphBus UI version (from package.json)
 const knownCommands = ['ls', 'cd', 'pwd', 'cat', 'echo', 'mkdir', 'rm', 'cp', 'mv', 'chmod', 'sudo', 'grep', 'find', 'git', 'npm', 'node', 'python', 'graphbus', 'help', 'clear', 'exit', 'build', 'negotiate', 'run', 'validate', 'status', 'env', 'history', 'top', 'df', 'ps'];
 
 // Initialize CodeMirror editor (using CodeMirror 5)
@@ -112,6 +114,33 @@ async function fetchSystemCredentials() {
         updateTerminalInfo();
     } catch (error) {
         console.error('Error fetching system credentials:', error);
+    }
+}
+
+// Fetch graphbus CLI version
+async function fetchGraphbusVersion() {
+    try {
+        const versionResult = await window.graphbus.runCommand('graphbus -v');
+        if (versionResult.success) {
+            const output = (versionResult.result.stdout || '').trim();
+            // Extract version from output (e.g., "graphbus version 0.1.1" or "0.1.1")
+            const versionMatch = output.match(/(\d+\.\d+\.\d+)/);
+            if (versionMatch) {
+                graphbusVersion = versionMatch[1];
+            }
+        }
+        updateVersionDisplay();
+    } catch (error) {
+        console.error('Error fetching graphbus version:', error);
+    }
+}
+
+// Update version display in the UI
+function updateVersionDisplay() {
+    const versionEl = document.getElementById('terminalVersions');
+    if (versionEl) {
+        versionEl.textContent = `UI: v${graphbusUiVersion}`;
+        versionEl.title = `graphbus-ui v${graphbusUiVersion} | graphbus v${graphbusVersion}`;
     }
 }
 
@@ -393,6 +422,9 @@ function initializeTerminal() {
 
     // Fetch system credentials (user, hostname, IP)
     fetchSystemCredentials();
+
+    // Fetch graphbus version
+    fetchGraphbusVersion();
 
     // Update terminal info display
     updateTerminalInfo();
