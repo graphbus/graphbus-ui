@@ -1,20 +1,20 @@
 :root {
-    --bg-dark: #0f0f12;
-    --bg-panel: #18181b;
-    --bg-input: #27272a;
-    --border-color: #3f3f46;
-    --text-primary: #f4f4f5;
-    --text-secondary: #a1a1aa;
-    --accent-primary: #8b5cf6;
-    --accent-hover: #7c3aed;
+    --bg-dark: #0a0a0a;
+    --bg-panel: #0f0f0f;
+    --bg-input: #1a1a1a;
+    --border-color: #2a2a2a;
+    --text-primary: #e5e7eb;
+    --text-secondary: #9ca3af;
+    --accent-primary: #667eea;
+    --accent-hover: #5568d3;
     --accent-secondary: #10b981;
     --danger: #ef4444;
     --warning: #f59e0b;
     --success: #10b981;
     --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
-    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+    --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+    --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.5), 0 4px 6px -4px rgb(0 0 0 / 0.4);
 }
 
 body {
@@ -572,7 +572,7 @@ button:hover {
     flex: 1;
     position: relative;
     overflow: hidden;
-    background-color: #1e1e1e;
+    background-color: #0a0a0a;
 }
 
 .view {
@@ -694,15 +694,16 @@ button:hover {
     height: 100% !important;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Courier New', monospace !important;
     font-size: 13px !important;
+    background: #0a0a0a !important;
 }
 
 #fileEditorContainer .CodeMirror-gutters {
-    background: #1a1a1a !important;
-    border-right: 1px solid #333 !important;
+    background: #0f0f0f !important;
+    border-right: 1px solid #1a1a1a !important;
 }
 
 #fileEditorContainer .CodeMirror-linenumber {
-    color: #666 !important;
+    color: #555 !important;
 }
 
 #fileEditorContainer .CodeMirror-cursor {
@@ -731,22 +732,22 @@ button:hover {
     flex: 1;
     overflow-y: auto;
     padding: 32px;
-    background: #1a1a1a;
+    background: #0a0a0a;
 }
 
 .conversation-input-section {
-    background: #252525;
-    border-top: 1px solid #333;
+    background: #121212;
+    border-top: 1px solid #1a1a1a;
     padding: 20px 24px;
 }
 
 .panel {
-    background: #252525;
+    background: #0f0f0f;
     border-radius: 12px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
-    border: 1px solid #333;
+    border: 1px solid #1a1a1a;
 }
 
 .panel-header {
@@ -754,8 +755,8 @@ button:hover {
     justify-content: space-between;
     align-items: center;
     padding: 18px 24px;
-    background: #2a2a2a;
-    border-bottom: 1px solid #333;
+    background: #121212;
+    border-bottom: 1px solid #1a1a1a;
 }
 
 .panel-header h2 {
@@ -1601,7 +1602,7 @@ body {
 .conversation-msg {
     margin-bottom: 16px;
     padding: 12px;
-    background: #1e1e1e;
+    background: #0f0f0f;
     border-radius: 8px;
     border-left: 3px solid #667eea;
 }
