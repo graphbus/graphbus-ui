@@ -18,15 +18,22 @@ const packageJsonPath = path.join(__dirname, '..', 'package.json');
 const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
 
 try {
-    // Get the last tag or use default
-    let lastTag = '1.0.0';
+    // Get the base version from package.json (without commit hash)
+    let baseVersion = packageJson.version.split('+')[0]; // Remove commit hash if present
+
+    // Get the last tag or use base version as fallback
+    let lastTag = baseVersion;
     try {
-        lastTag = execSync('git describe --tags --abbrev=0 2>/dev/null || echo "1.0.0"')
+        lastTag = execSync('git describe --tags --abbrev=0 2>/dev/null || echo ""')
             .toString()
             .trim()
             .replace(/^v/, '');
+        if (!lastTag) {
+            lastTag = baseVersion;
+        }
     } catch (e) {
-        // No tags exist, use default
+        // Use base version as fallback
+        lastTag = baseVersion;
     }
 
     // Get commit count since last tag
