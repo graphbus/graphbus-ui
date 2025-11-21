@@ -1,6 +1,6 @@
 {
   "name": "graphbus-ui",
-  "version": "1.0.0",
+  "version": "1.0.0+354e025",
   "description": "Electron UI for GraphBus agent orchestration with natural language control",
   "main": "main.js",
   "scripts": {
@@ -8,7 +8,11 @@
     "start:dir": "echo 'Usage: npm run start:dir /path/to/directory' && echo 'Or: npm start -- --dir=/path/to/directory'",
     "build": "electron-builder",
     "dev": "electron . --enable-logging",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "version:update": "node scripts/update-version.js",
+    "version:show": "node -e \"console.log(require('./package.json').version)\"",
+    "precommit": "npm run version:update",
+    "prepush": "npm run version:update && git add package.json"
   },
   "keywords": [
     "graphbus",
