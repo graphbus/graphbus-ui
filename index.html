@@ -421,6 +421,26 @@
                                     </div>
                                 </div>
 
+                                <!-- Project Description Section -->
+                                <div class="settings-section"
+                                    style="border-top: 1px solid #333; padding-top: 16px; margin-top: 16px;">
+                                    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                                        <span style="font-weight: 600; color: #667eea;">📋 Project Description</span>
+                                    </div>
+                                    <div style="margin-bottom: 12px;">
+                                        <textarea id="projectDescriptionInput" placeholder="Describe your project goals (e.g., 'Improve error handling and add caching')"
+                                            class="settings-input"
+                                            style="width: 100%; min-height: 80px; padding: 8px; margin-bottom: 8px; resize: vertical;"></textarea>
+                                        <div style="display: flex; gap: 8px;">
+                                            <button onclick="saveProjectDescription()" class="settings-btn primary">💾 Save Description</button>
+                                            <button onclick="loadProjectDescriptionUI()" class="settings-btn">🔄 Reload</button>
+                                        </div>
+                                        <p style="font-size: 11px; color: #888; margin-top: 8px;">
+                                            This description is used as the intent for build and negotiation operations.
+                                        </p>
+                                    </div>
+                                </div>
+
                                 <!-- Quick Tips -->
                                 <div class="settings-section"
                                     style="border-top: 1px solid #333; padding-top: 16px; margin-top: 16px;">

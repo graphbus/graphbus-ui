@@ -1017,6 +1017,13 @@ function switchView(viewName) {
         }, 300);
     }
 
+    // If switching to settings view, load project description
+    if (viewName === 'settings') {
+        setTimeout(() => {
+            loadProjectDescriptionUI();
+        }, 100);
+    }
+
     // If switching to files view, load the file tree
     if (viewName === 'files') {
         setTimeout(() => {
@@ -1676,6 +1683,26 @@ async function loadProjectMetadata() {
         console.error('Failed to load project metadata:', error);
     }
     return null;
+}
+
+// Save project description from UI
+async function saveProjectDescription() {
+    const input = document.getElementById('projectDescriptionInput');
+    const description = input.value.trim();
+
+    if (!description) {
+        alert('Please enter a project description');
+        return;
+    }
+
+    await saveProjectMetadata(description);
+    addMessage(`💾 Project description updated: ${description}`, 'system');
+}
+
+// Load project description into UI
+async function loadProjectDescriptionUI() {
+    const input = document.getElementById('projectDescriptionInput');
+    input.value = projectDescription || '';
 }
 
 async function sendCommand() {
