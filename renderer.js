@@ -88,7 +88,7 @@ const DEFAULT_WORKFLOW_STAGES = {
         nextStage: 'negotiate',
         action: () => ({
             prompt: '🏗️ Building agents and analyzing dependencies...',
-            command: 'graphbus build agents/ --enable-agents',
+            command: 'graphbus build agents/ --enable-agents -v',
             autoRun: true
         })
     },
@@ -101,7 +101,7 @@ const DEFAULT_WORKFLOW_STAGES = {
         requiredInput: false,
         action: (state) => ({
             prompt: `🤝 Running negotiation with intent: "${state.intent || 'improve system'}"`,
-            command: `graphbus negotiate .graphbus --intent "${state.intent || 'enhance agent implementation'}" --rounds 5`,
+            command: `graphbus negotiate .graphbus --intent "${state.intent || 'enhance agent implementation'}" --rounds 5 -v`,
             autoRun: true
         })
     },
@@ -639,7 +639,7 @@ function getAutocompleteSuggestions(input) {
 
     // GraphBus commands
     const graphbusCommands = [
-        'graphbus build agents/ --enable-agents',
+        'graphbus build agents/ --enable-agents -v',
         'graphbus run .graphbus',
         'graphbus negotiate .graphbus --intent "',
         'graphbus inspect .graphbus',
@@ -1372,9 +1372,7 @@ What would you like to do?`, 'assistant');
 async function autoBuildAgents() {
     // Use CLI command instead of IPC - this ensures API key is passed correctly
     const agentsDir = 'agents';
-    const buildCommand = workflowState.claudeInitialized
-        ? `graphbus build ${agentsDir} --enable-agents`
-        : `graphbus build ${agentsDir}`;
+    const buildCommand = `graphbus build ${agentsDir} --enable-agents -v`;
 
     currentArtifactsDir = `${workingDirectory}/.graphbus`;
 
