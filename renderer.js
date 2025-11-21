@@ -196,9 +196,21 @@ async function executeTerminalCommand(command) {
         xterm.writeln('  run         - Start the runtime\r');
         xterm.writeln('  validate    - Validate the agent setup\r');
         xterm.writeln('  ls          - List project files\r');
+        xterm.writeln('  status      - Show orchestration status\r');
         xterm.writeln('  clear       - Clear terminal\r');
         xterm.writeln('  help        - Show this help\r');
         xterm.writeln('  exit        - Exit terminal\r');
+        xterm.write('\r$ ');
+        return;
+    }
+
+    if (trimmed === 'status') {
+        xterm.writeln(`\r📊 Orchestration Status:\r`);
+        xterm.writeln(`  Phase: ${workflowState.phase}\r`);
+        xterm.writeln(`  Built: ${workflowState.hasBuilt ? '✅' : '❌'}\r`);
+        xterm.writeln(`  Running: ${workflowState.isRunning ? '✅' : '❌'}\r`);
+        xterm.writeln(`  Agents Loaded: ${workflowState.agentsLoaded ? '✅' : '❌'}\r`);
+        xterm.writeln(`  Claude Ready: ${workflowState.claudeInitialized ? '✅' : '❌'}\r`);
         xterm.write('\r$ ');
         return;
     }
@@ -215,23 +227,35 @@ async function executeTerminalCommand(command) {
     }
 
     // Execute system command via GraphBus
-    xterm.writeln(`Executing: ${trimmed}\r`);
+    xterm.writeln(`\r⚙️  Executing: ${trimmed}\r`);
 
     try {
-        const result = await window.graphbus.executeCommand(trimmed);
+        const result = await window.graphbus.runCommand(trimmed);
         if (result.success) {
-            const output = result.result.split('\n');
-            output.forEach(line => {
-                if (line) xterm.writeln(line + '\r');
-            });
+            // Handle stdout/stderr output
+            const output = (result.result.stdout || result.result || '').split('\n');
+            if (output.length > 0 && output.some(line => line.trim())) {
+                xterm.writeln(`\r📋 Output:\r`);
+                output.forEach(line => {
+                    if (line.trim()) xterm.writeln(`  ${line}\r`);
+                });
+            }
+
+            // Show stderr if present
+            if (result.result.stderr) {
+                xterm.writeln(`\r⚠️  Errors:\r`);
+                result.result.stderr.split('\n').forEach(line => {
+                    if (line.trim()) xterm.writeln(`  ${line}\r`);
+                });
+            }
         } else {
-            xterm.writeln(`Error: ${result.error}\r`);
+            xterm.writeln(`\r❌ Error: ${result.error || result.message}\r`);
         }
     } catch (error) {
-        xterm.writeln(`Error: ${error.message}\r`);
+        xterm.writeln(`\r❌ Error: ${error.message}\r`);
     }
 
-    xterm.write('$ ');
+    xterm.write('\r$ ');
 }
 
 // Send prompt to Claude
