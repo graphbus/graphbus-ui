@@ -218,8 +218,22 @@
                         <div class="view-header">
                             <h2>💬 Terminal</h2>
                         </div>
-                        <!-- xterm.js Terminal Container -->
-                        <div id="terminal" style="flex: 1; overflow: hidden; background: #0a0a0a;"></div>
+                        <!-- Terminal Container with Output and Prompt -->
+                        <div class="terminal-container">
+                            <!-- Terminal Output Area -->
+                            <div id="terminalOutput" class="terminal-output"></div>
+                            <!-- Terminal Mode Selector -->
+                            <div class="terminal-mode-selector">
+                                <button class="mode-btn mode-auto active" data-mode="auto" title="Auto-detect with AI">Auto</button>
+                                <button class="mode-btn mode-cmd" data-mode="cmd" title="Force as command">Cmd</button>
+                                <button class="mode-btn mode-prompt" data-mode="prompt" title="Force as prompt">Prompt</button>
+                            </div>
+                            <!-- Terminal Prompt Area (Anchored at bottom) -->
+                            <div class="terminal-prompt-area">
+                                <span class="terminal-prompt">$ </span>
+                                <input type="text" id="terminalInput" class="terminal-input" placeholder="Type command or question..." autocomplete="off" />
+                            </div>
+                        </div>
 
                         <!-- Conversation Input (Only in this tab) -->
                         <div class="conversation-input-section">

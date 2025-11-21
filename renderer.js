@@ -5,6 +5,7 @@ let workingDirectory = null; // Will be set from main process
 let codeMirrorEditor = null; // CodeMirror editor instance
 let xterm = null; // xterm.js terminal instance
 let terminalInitialized = false; // Track if terminal is initialized
+let terminalMode = 'auto'; // Terminal input mode: 'auto', 'cmd', or 'prompt'
 
 // Initialize CodeMirror editor (using CodeMirror 5)
 function initializeCodeMirror() {
@@ -29,205 +30,231 @@ function initializeCodeMirror() {
     container.querySelector('.CodeMirror').style.height = '100%';
 }
 
-// Detect if input is a command or a prompt
+// Use Claude Haiku to classify input as command or prompt
+async function classifyInputWithHaiku(input) {
+    try {
+        const response = await window.graphbus.claudeChat(
+            `Classify this input as either 'command' or 'prompt'. Respond with ONLY one word: "command" or "prompt".\n\nInput: ${input}`,
+            { role: 'classifier' }
+        );
+
+        if (response.success && response.result.message) {
+            const classification = response.result.message.trim().toLowerCase();
+            if (classification.includes('command')) return 'command';
+            if (classification.includes('prompt')) return 'prompt';
+        }
+    } catch (error) {
+        console.error('Error classifying input:', error);
+    }
+
+    // Fallback to regex detection if Haiku fails
+    return detectInputType(input);
+}
+
+// Detect if input is a command or a prompt (fallback regex-based detection)
 function detectInputType(input) {
     const trimmed = input.trim().toLowerCase();
 
-    // Command patterns
+    // Known system commands - only these specific ones at the start
+    const knownCommands = ['ls', 'cd', 'pwd', 'cat', 'echo', 'mkdir', 'rm', 'cp', 'mv', 'chmod', 'sudo', 'grep', 'find', 'git', 'npm', 'node', 'python', 'graphbus', 'help', 'clear', 'exit', 'build', 'negotiate', 'run', 'validate'];
+
+    // Check if starts with known command
+    const startsWithKnownCommand = knownCommands.some(cmd => trimmed === cmd || /^\s*/.test(trimmed) && trimmed.startsWith(cmd + ' '));
+
+    // Command patterns (only specific ones)
     const commandPatterns = [
-        /^(ls|cd|pwd|cat|echo|mkdir|rm|cp|mv|chmod|sudo|grep|find|git|npm|node|python|graphbus|help|clear|exit|build|negotiate|run|validate)/,
-        /^[a-z]+\s+/,  // command with arguments
+        /^(ls|cd|pwd|cat|echo|mkdir|rm|cp|mv|chmod|sudo|grep|find|git|npm|node|python|graphbus|help|clear|exit|build|negotiate|run|validate)(\s|$)/,  // known command with optional args
         /^-[a-zA-Z]/,   // flag-like (starts with -)
         /^--[a-z]/,     // long flag
-        /\/[a-z]/       // path-like
     ];
 
-    // Question/prompt patterns
-    const questionPatterns = [
-        /\?$|^\?/,      // ends with ? or starts with ?
-        /^(how|what|why|when|where|who|do|can|should|will|is|are|help\s+me|tell\s+me|show\s+me|explain|describe|list)/i,
-        /please|help|need|want|make|create|generate|build|implement/i
+    // Natural language prompt indicators - these should be treated as prompts
+    const promptIndicators = [
+        /\?$/,          // ends with ?
+        /^(how|what|why|when|where|who|do|can|should|will|is|are|help\s+me|tell\s+me|show\s+me|explain|describe|list)\b/i,
+        /\b(please|help|need|want|make|create|generate|build|implement|would|could|can you|please|setup|configure|design)\b/i
     ];
 
     // Check patterns
     const isCommand = commandPatterns.some(p => p.test(trimmed));
-    const isQuestion = questionPatterns.some(p => p.test(trimmed));
+    const isPrompt = promptIndicators.some(p => p.test(trimmed));
 
-    if (isCommand && !isQuestion) return 'command';
-    if (isQuestion && !isCommand) return 'prompt';
+    // Priority: explicit prompts win over ambiguous patterns
+    if (isPrompt) return 'prompt';
+    if (isCommand) return 'command';
     if (!trimmed) return null;
 
-    // Default: if ambiguous, guess based on content
-    return trimmed.includes(' ') && !trimmed.includes('?') ? 'command' : 'prompt';
+    // Default: if it has prompt keywords, treat as prompt, otherwise command
+    return 'prompt';  // Default to prompt for ambiguous input
 }
 
-// Initialize xterm.js terminal
+// Write output to terminal
+function writeTerminal(text, type = 'output') {
+    const outputDiv = document.getElementById('terminalOutput');
+    if (!outputDiv) return;
+
+    const line = document.createElement('div');
+    line.className = 'terminal-line';
+
+    // Format based on type
+    if (type === 'header') {
+        line.style.color = '#667eea';
+        line.style.fontWeight = 'bold';
+        line.style.marginTop = '6px';
+    } else if (type === 'error') {
+        line.style.color = '#ff5555';
+    } else if (type === 'warning') {
+        line.style.color = '#ffff55';
+    } else if (type === 'success') {
+        line.style.color = '#55ff55';
+    } else if (type === 'command') {
+        line.style.color = '#667eea';
+        line.style.marginTop = '4px';
+        line.style.fontWeight = '600';
+    }
+
+    line.textContent = text;
+    outputDiv.appendChild(line);
+
+    // Auto-scroll to bottom
+    outputDiv.scrollTop = outputDiv.scrollHeight;
+}
+
+// Add a visual separator line to the terminal
+function writeTerminalSeparator() {
+    const outputDiv = document.getElementById('terminalOutput');
+    if (!outputDiv) return;
+
+    const line = document.createElement('div');
+    line.className = 'terminal-line';
+    line.style.marginTop = '8px';
+    line.style.marginBottom = '8px';
+    line.style.color = '#333';
+    line.style.fontSize = '11px';
+    line.textContent = '─────────────────────────────────────────────────────';
+    outputDiv.appendChild(line);
+
+    // Auto-scroll to bottom
+    outputDiv.scrollTop = outputDiv.scrollHeight;
+}
+
+// Initialize HTML-based terminal
 function initializeTerminal() {
-    const terminalContainer = document.getElementById('terminal');
-    if (!terminalContainer || !window.Terminal) return;
+    const outputDiv = document.getElementById('terminalOutput');
+    const inputField = document.getElementById('terminalInput');
+    const modeButtons = document.querySelectorAll('.mode-btn');
 
-    xterm = new window.Terminal({
-        cols: 120,
-        rows: 30,
-        theme: {
-            background: '#0a0a0a',
-            foreground: '#e5e7eb',
-            cursor: '#e5e7eb',
-            cursorAccent: '#0a0a0a',
-            black: '#1a1a1a',
-            red: '#ff5555',
-            green: '#55ff55',
-            yellow: '#ffff55',
-            blue: '#5555ff',
-            magenta: '#ff55ff',
-            cyan: '#55ffff',
-            white: '#e5e7eb',
-            brightBlack: '#555555',
-            brightRed: '#ff7777',
-            brightGreen: '#77ff77',
-            brightYellow: '#ffff77',
-            brightBlue: '#7777ff',
-            brightMagenta: '#ff77ff',
-            brightCyan: '#77ffff',
-            brightWhite: '#ffffff'
-        },
-        fontFamily: "'Monaco', 'Menlo', 'Ubuntu Mono', 'Courier New', monospace",
-        fontSize: 13,
-        lineHeight: 1.2,
-        cursorBlink: true,
-        scrollback: 1000
-    });
+    if (!outputDiv || !inputField) return;
 
-    xterm.open(terminalContainer);
     terminalInitialized = true;
 
-    // Terminal state
-    let currentLine = '';
-    let inputMode = 'waiting'; // waiting, processing, idle
+    // Write welcome message
+    writeTerminal('╔════════════════════════════════════════════════════════════╗', 'header');
+    writeTerminal('║  📡 GraphBus Terminal - Claude AI Orchestration             ║', 'header');
+    writeTerminal('║  Powered by Claude for intelligent agent management         ║', 'header');
+    writeTerminal('╚════════════════════════════════════════════════════════════╝', 'header');
+    writeTerminal('');
+    writeTerminal('Mode: Auto-detect with Claude Haiku');
+    writeTerminal('Available modes:');
+    writeTerminal('  • Commands: ls, build, negotiate, run, validate, status');
+    writeTerminal('  • Questions: Natural language queries sent to Claude');
+    writeTerminal('  • Type "help" for more information');
+    writeTerminal('');
 
-    // Write welcome message with Claude status
-    xterm.writeln('\r\n╔════════════════════════════════════════════════════════════╗');
-    xterm.writeln('║  📡 GraphBus Terminal - Claude AI Orchestration             ║');
-    xterm.writeln('║  Powered by Claude for intelligent agent management         ║');
-    xterm.writeln('╚════════════════════════════════════════════════════════════╝\r');
+    // Handle mode button clicks
+    modeButtons.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            modeButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            terminalMode = btn.dataset.mode;
+            writeTerminal(`Mode changed to: ${btn.textContent}`, 'header');
+            inputField.focus();
+        });
+    });
 
-    xterm.writeln('Available modes:');
-    xterm.writeln('  • Commands: ls, build, negotiate, run, validate');
-    xterm.writeln('  • Questions: Natural language queries sent to Claude');
-    xterm.writeln('  • Type "help" for more information\r');
-    xterm.write('$ ');
+    // Handle input field Enter key
+    inputField.addEventListener('keypress', async (e) => {
+        if (e.key === 'Enter') {
+            const input = inputField.value.trim();
+            inputField.value = ''; // Clear input
 
-    // Handle keyboard input
-    xterm.onData(data => {
-        const char = data.charCodeAt(0);
+            if (!input) return;
 
-        // Handle backspace
-        if (char === 127 || char === 8) {
-            if (currentLine.length > 0) {
-                currentLine = currentLine.slice(0, -1);
-                xterm.write('\b \b');
-            }
-            return;
-        }
+            // Echo input to terminal
+            writeTerminal(`$ ${input}`, 'command');
 
-        // Handle Enter
-        if (char === 13) {
-            xterm.writeln('\r');
-
-            if (currentLine.trim()) {
-                const inputType = detectInputType(currentLine);
-
-                if (inputType) {
-                    xterm.writeln(`[Detected as ${inputType === 'command' ? '⚙️ COMMAND' : '❓ PROMPT'}]\r`);
-
-                    if (inputType === 'command') {
-                        executeTerminalCommand(currentLine);
-                    } else {
-                        sendPromptToClaude(currentLine);
-                    }
-                } else {
-                    xterm.write('$ ');
-                }
+            // Determine input type based on mode
+            let inputType;
+            if (terminalMode === 'auto') {
+                // Use Haiku for classification
+                inputType = await classifyInputWithHaiku(input);
+            } else if (terminalMode === 'cmd') {
+                inputType = 'command';
             } else {
-                xterm.write('$ ');
+                inputType = 'prompt';
             }
 
-            currentLine = '';
-            return;
-        }
+            if (inputType) {
+                writeTerminal(`[${terminalMode === 'auto' ? '🤖 AI-detected' : '👤 Forced'} as ${inputType === 'command' ? '⚙️ COMMAND' : '❓ PROMPT'}]`);
+                writeTerminal('');
 
-        // Handle Ctrl+C
-        if (char === 3) {
-            xterm.writeln('\r^C');
-            currentLine = '';
-            xterm.write('$ ');
-            return;
-        }
+                if (inputType === 'command') {
+                    await executeTerminalCommand(input);
+                } else {
+                    await sendPromptToClaude(input);
+                }
+            }
 
-        // Handle Ctrl+L (clear)
-        if (char === 12) {
-            xterm.clear();
-            currentLine = '';
-            xterm.write('$ ');
-            return;
-        }
-
-        // Regular character input
-        if (char >= 32 && char <= 126) {
-            currentLine += data;
-            xterm.write(data);
+            writeTerminal('');
         }
     });
 
-    return xterm;
+    // Focus input field by default
+    inputField.focus();
 }
 
 // Execute terminal command
 async function executeTerminalCommand(command) {
-    if (!xterm) return;
-
     const trimmed = command.trim();
 
     // Handle built-in commands
     if (trimmed === 'help') {
-        xterm.writeln('Available commands:\r');
-        xterm.writeln('  build       - Build the agent system\r');
-        xterm.writeln('  negotiate   - Run agent negotiation\r');
-        xterm.writeln('  run         - Start the runtime\r');
-        xterm.writeln('  validate    - Validate the agent setup\r');
-        xterm.writeln('  ls          - List project files\r');
-        xterm.writeln('  status      - Show orchestration status\r');
-        xterm.writeln('  clear       - Clear terminal\r');
-        xterm.writeln('  help        - Show this help\r');
-        xterm.writeln('  exit        - Exit terminal\r');
-        xterm.write('\r$ ');
+        writeTerminal('Available commands:', 'header');
+        writeTerminal('  build       - Build the agent system');
+        writeTerminal('  negotiate   - Run agent negotiation');
+        writeTerminal('  run         - Start the runtime');
+        writeTerminal('  validate    - Validate the agent setup');
+        writeTerminal('  ls          - List project files');
+        writeTerminal('  status      - Show orchestration status');
+        writeTerminal('  clear       - Clear terminal');
+        writeTerminal('  help        - Show this help');
+        writeTerminal('  exit        - Exit terminal');
         return;
     }
 
     if (trimmed === 'status') {
-        xterm.writeln(`\r📊 Orchestration Status:\r`);
-        xterm.writeln(`  Phase: ${workflowState.phase}\r`);
-        xterm.writeln(`  Built: ${workflowState.hasBuilt ? '✅' : '❌'}\r`);
-        xterm.writeln(`  Running: ${workflowState.isRunning ? '✅' : '❌'}\r`);
-        xterm.writeln(`  Agents Loaded: ${workflowState.agentsLoaded ? '✅' : '❌'}\r`);
-        xterm.writeln(`  Claude Ready: ${workflowState.claudeInitialized ? '✅' : '❌'}\r`);
-        xterm.write('\r$ ');
+        writeTerminal('📊 Orchestration Status:', 'header');
+        writeTerminal(`Phase: ${workflowState.phase}`);
+        writeTerminal(`Built: ${workflowState.hasBuilt ? '✅ Yes' : '❌ No'}`);
+        writeTerminal(`Running: ${workflowState.isRunning ? '✅ Yes' : '❌ No'}`);
+        writeTerminal(`Agents Loaded: ${workflowState.agentsLoaded ? '✅ Yes' : '❌ No'}`);
+        writeTerminal(`Claude Ready: ${workflowState.claudeInitialized ? '✅ Yes' : '❌ No'}`);
         return;
     }
 
     if (trimmed === 'clear') {
-        xterm.clear();
-        xterm.write('$ ');
+        const outputDiv = document.getElementById('terminalOutput');
+        if (outputDiv) outputDiv.innerHTML = '';
         return;
     }
 
     if (trimmed === 'exit') {
-        xterm.writeln('Goodbye!\r');
+        writeTerminal('Goodbye!');
         return;
     }
 
     // Execute system command via GraphBus
-    xterm.writeln(`\r⚙️  Executing: ${trimmed}\r`);
+    writeTerminal(`⚙️  Executing: ${trimmed}`, 'command');
 
     try {
         const result = await window.graphbus.runCommand(trimmed);
@@ -235,47 +262,40 @@ async function executeTerminalCommand(command) {
             // Handle stdout/stderr output
             const output = (result.result.stdout || result.result || '').split('\n');
             if (output.length > 0 && output.some(line => line.trim())) {
-                xterm.writeln(`\r📋 Output:\r`);
+                writeTerminal('📋 Output:', 'header');
                 output.forEach(line => {
-                    if (line.trim()) xterm.writeln(`  ${line}\r`);
+                    if (line.trim()) writeTerminal(`  ${line}`);
                 });
             }
 
             // Show stderr if present
             if (result.result.stderr) {
-                xterm.writeln(`\r⚠️  Errors:\r`);
+                writeTerminal('⚠️  Errors:', 'warning');
                 result.result.stderr.split('\n').forEach(line => {
-                    if (line.trim()) xterm.writeln(`  ${line}\r`);
+                    if (line.trim()) writeTerminal(`  ${line}`, 'warning');
                 });
             }
         } else {
-            xterm.writeln(`\r❌ Error: ${result.error || result.message}\r`);
+            writeTerminal(`❌ Error: ${result.error || result.message}`, 'error');
         }
     } catch (error) {
-        xterm.writeln(`\r❌ Error: ${error.message}\r`);
+        writeTerminal(`❌ Error: ${error.message}`, 'error');
     }
-
-    xterm.write('\r$ ');
 }
 
 // Send prompt to Claude
 async function sendPromptToClaude(prompt) {
-    if (!xterm) return;
-
-    xterm.writeln(`\r`);
-
     // Show that we're sending to Claude
-    xterm.writeln(`📡 Sending to Claude AI...\r`);
+    writeTerminal(`📡 Sending to Claude AI...`, 'command');
 
     try {
         // Check if Claude is initialized
         if (!workflowState.claudeInitialized) {
-            xterm.writeln(`⚠️  Claude not yet initialized. Using fallback interpretation.\r`);
+            writeTerminal(`⚠️  Claude not yet initialized. Using fallback interpretation.`, 'warning');
             const handled = await interpretCommand(prompt);
             if (!handled) {
-                xterm.writeln(`❌ Could not interpret command. Try "help" for available options.\r`);
+                writeTerminal(`❌ Could not interpret command. Try "help" for available options.`, 'error');
             }
-            xterm.write('$ ');
             return;
         }
 
@@ -293,20 +313,20 @@ async function sendPromptToClaude(prompt) {
 
             // Display Claude's response
             if (message) {
-                xterm.writeln(`\r🤖 Claude:\r`);
+                writeTerminal(`🤖 Claude:`, 'header');
                 const lines = message.split('\n');
                 lines.forEach(line => {
                     if (line.trim()) {
-                        xterm.writeln(`  ${line}\r`);
+                        writeTerminal(`  ${line}`);
                     }
                 });
             }
 
             // If Claude suggested an action, execute it
             if (action) {
-                xterm.writeln(`\r⚙️  Executing: ${action}\r`);
+                writeTerminal(`⚙️  Executing: ${action}`, 'command');
                 if (params) {
-                    xterm.writeln(`   Parameters: ${JSON.stringify(params)}\r`);
+                    writeTerminal(`   Parameters: ${JSON.stringify(params)}`);
                 }
                 // Action execution would happen here through workflow
             }
@@ -314,19 +334,16 @@ async function sendPromptToClaude(prompt) {
             // Check for structured plan
             const structuredPlan = plan || parsePlanFromClaudeResponse(response.result);
             if (structuredPlan) {
-                xterm.writeln(`\r📋 Plan Created: ${structuredPlan.name}\r`);
+                writeTerminal(`📋 Plan Created: ${structuredPlan.name}`, 'header');
                 if (structuredPlan.agents && structuredPlan.agents.length > 0) {
-                    xterm.writeln(`   Agents: ${structuredPlan.agents.map(a => a.name).join(', ')}\r`);
+                    writeTerminal(`   Agents: ${structuredPlan.agents.map(a => a.name).join(', ')}`);
                 }
             }
         } else {
-            xterm.writeln(`❌ Error: ${response.error || 'Unknown error'}\r`);
+            writeTerminal(`❌ Error: ${response.error || 'Unknown error'}`, 'error');
         }
-
-        xterm.write('$ ');
     } catch (error) {
-        xterm.writeln(`❌ Error communicating with Claude: ${error.message}\r`);
-        xterm.write('$ ');
+        writeTerminal(`❌ Error communicating with Claude: ${error.message}`, 'error');
     }
 }
 
@@ -1978,22 +1995,21 @@ async function intelligentMethodCall(command) {
 // Chat functions
 function addMessage(text, type = 'assistant') {
     // If terminal is initialized, write to terminal instead
-    if (xterm && terminalInitialized) {
+    if (terminalInitialized) {
         // Add type indicator
         const typeIcon = type === 'assistant' ? '🤖' : type === 'user' ? '👤' : '📢';
         const typeLabel = type === 'assistant' ? 'Assistant' : type === 'user' ? 'User' : 'System';
 
         // Write formatted message to terminal
         const lines = text.split('\n');
-        xterm.writeln(`\r\n${typeIcon} [${typeLabel}]`);
+        writeTerminal(`${typeIcon} [${typeLabel}]`, 'header');
 
         lines.forEach(line => {
             if (line) {
-                xterm.writeln(`  ${line}\r`);
+                writeTerminal(`  ${line}`);
             }
         });
 
-        xterm.write('\r$ ');
         return;
     }
 
