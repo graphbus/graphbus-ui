@@ -179,14 +179,13 @@ function updateTerminalInfo() {
         cwdPrompt.textContent = displayPath;
     }
 
-    // Display user@hostname
+    // Display hostname only
     if (userElement) {
-        const userhost = `${currentUser}@${currentHostname}`;
-        userElement.textContent = userhost;
+        userElement.textContent = currentHostname;
     }
 
     if (userPrompt) {
-        userPrompt.textContent = currentUser;
+        userPrompt.textContent = currentHostname;
     }
 
     // Display IP address
