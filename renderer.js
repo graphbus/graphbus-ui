@@ -120,18 +120,21 @@ async function fetchSystemCredentials() {
 // Fetch graphbus CLI version
 async function fetchGraphbusVersion() {
     try {
-        const versionResult = await window.graphbus.runCommand('graphbus -v');
+        const versionResult = await window.graphbus.runCommand('graphbus --version');
         if (versionResult.success) {
             const output = (versionResult.result.stdout || '').trim();
-            // Extract version from output (e.g., "graphbus version 0.1.1" or "0.1.1")
+            // Extract version from output (e.g., "graphbus, version 0.1.1")
             const versionMatch = output.match(/(\d+\.\d+\.\d+)/);
             if (versionMatch) {
                 graphbusVersion = versionMatch[1];
+                console.log('[Version] GraphBus CLI version:', graphbusVersion);
             }
+        } else if (versionResult.result && versionResult.result.stderr) {
+            console.warn('[Version] Error fetching graphbus version:', versionResult.result.stderr);
         }
         updateVersionDisplay();
     } catch (error) {
-        console.error('Error fetching graphbus version:', error);
+        console.error('[Version] Error fetching graphbus version:', error);
     }
 }
 
@@ -139,8 +142,12 @@ async function fetchGraphbusVersion() {
 function updateVersionDisplay() {
     const versionEl = document.getElementById('terminalVersions');
     if (versionEl) {
-        versionEl.textContent = `UI: v${graphbusUiVersion}`;
-        versionEl.title = `graphbus-ui v${graphbusUiVersion} | graphbus v${graphbusVersion}`;
+        if (graphbusVersion && graphbusVersion !== 'unknown') {
+            versionEl.textContent = `UI: v${graphbusUiVersion} | CLI: v${graphbusVersion}`;
+        } else {
+            versionEl.textContent = `UI: v${graphbusUiVersion}`;
+        }
+        versionEl.title = `graphbus-ui v${graphbusUiVersion} | graphbus CLI v${graphbusVersion}`;
     }
 }
 
