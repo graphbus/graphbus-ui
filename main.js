@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const YAML = require('yaml');
 const PythonBridge = require('./python_bridge');
 const ClaudeService = require('./claude_service');
 const InternalWebSocketServer = require('./internal_server');
@@ -37,8 +38,8 @@ function parseWorkingDirectory() {
         }
     }
 
-    // Default to current working directory
-    return process.cwd();
+    // Default to null (no project open)
+    return null;
 }
 
 let workingDirectory = parseWorkingDirectory();
@@ -103,6 +104,63 @@ function deleteApiKey() {
     } catch (error) {
         console.error('Error deleting API key:', error);
         return false;
+    }
+}
+
+// Load LLM configuration from graphbus.yaml in working directory or project root
+function loadLLMConfig(workingDir) {
+    try {
+        if (!workingDir) {
+            console.log('No working directory specified, using default LLM model');
+            return {
+                model: 'claude-sonnet-4-5-20250929',
+                provider: 'anthropic',
+                temperature: 0.7,
+                max_tokens: 4096
+            };
+        }
+
+        // Look for graphbus.yaml in working directory
+        const configPath = path.join(workingDir, 'graphbus.yaml');
+
+        if (fs.existsSync(configPath)) {
+            console.log('Loading LLM config from', configPath);
+            const configContent = fs.readFileSync(configPath, 'utf-8');
+            const config = YAML.parse(configContent);
+
+            if (config && config.llm) {
+                const llmConfig = config.llm;
+                console.log('LLM config loaded:', {
+                    model: llmConfig.model,
+                    provider: llmConfig.provider
+                });
+
+                return {
+                    model: llmConfig.model || 'claude-sonnet-4-5-20250929',
+                    provider: llmConfig.provider || 'anthropic',
+                    api_key: llmConfig.api_key || null,
+                    base_url: llmConfig.base_url || null,
+                    temperature: llmConfig.temperature || 0.7,
+                    max_tokens: llmConfig.max_tokens || 4096
+                };
+            }
+        }
+
+        console.log('No graphbus.yaml found in', workingDir, ', using default LLM model');
+        return {
+            model: 'claude-sonnet-4-5-20250929',
+            provider: 'anthropic',
+            temperature: 0.7,
+            max_tokens: 4096
+        };
+    } catch (error) {
+        console.error('Error loading LLM config:', error);
+        return {
+            model: 'claude-sonnet-4-5-20250929',
+            provider: 'anthropic',
+            temperature: 0.7,
+            max_tokens: 4096
+        };
     }
 }
 
@@ -532,11 +590,14 @@ app.whenReady().then(async () => {
     // Initialize Claude service
     claudeService = new ClaudeService();
 
+    // Load LLM configuration from graphbus.yaml
+    const llmConfig = loadLLMConfig(workingDirectory);
+
     // Try to auto-load API key
     const apiKey = loadApiKey();
     if (apiKey) {
         try {
-            claudeService.initialize(apiKey, workingDirectory);
+            claudeService.initialize(apiKey, workingDirectory, llmConfig);
             console.log('Claude initialized automatically with saved API key');
         } catch (error) {
             console.error('Failed to initialize Claude with saved API key:', error);
@@ -833,6 +894,10 @@ ipcMain.handle('graphbus:load-graph', async (event, artifactsDir) => {
 // Rehydrate full state from .graphbus folder
 ipcMain.handle('graphbus:rehydrate-state', async (event, workingDirectory) => {
     try {
+        if (!workingDirectory) {
+            return { success: true, result: { hasGraphbus: false } };
+        }
+
         const graphbusDir = path.join(workingDirectory, '.graphbus');
 
         if (!fs.existsSync(graphbusDir)) {
@@ -877,12 +942,14 @@ ipcMain.handle('graphbus:rehydrate-state', async (event, workingDirectory) => {
             state.buildSummary = JSON.parse(fs.readFileSync(buildSummaryPath, 'utf-8'));
         }
 
-        // Load conversation_history.json
-        const conversationPath = path.join(graphbusDir, 'conversation_history.json');
-        if (fs.existsSync(conversationPath)) {
-            state.conversationHistory = JSON.parse(fs.readFileSync(conversationPath, 'utf-8'));
+        // Load conversation history if working directory is set
+        if (workingDirectory) {
+            const conversationFile = path.join(graphbusDir, 'conversation_history.json');
+            if (fs.existsSync(conversationFile)) {
+                const data = JSON.parse(fs.readFileSync(conversationFile, 'utf-8'));
+                state.conversation = data.messages || [];
+            }
         }
-
         // Load negotiations.json
         const negotiationsPath = path.join(graphbusDir, 'negotiations.json');
         if (fs.existsSync(negotiationsPath)) {
@@ -897,15 +964,7 @@ ipcMain.handle('graphbus:rehydrate-state', async (event, workingDirectory) => {
 
         // Load agents.json
         const agentsPath = path.join(graphbusDir, 'agents.json');
-        if (fs.existsSync(agentsPath)) {
-            state.agents = JSON.parse(fs.readFileSync(agentsPath, 'utf-8'));
-        }
 
-        // Load topics.json
-        const topicsPath = path.join(graphbusDir, 'topics.json');
-        if (fs.existsSync(topicsPath)) {
-            state.topics = JSON.parse(fs.readFileSync(topicsPath, 'utf-8'));
-        }
 
         return { success: true, result: state };
     } catch (error) {
@@ -931,6 +990,12 @@ ipcMain.handle('system:get-cwd', async (event) => {
 // Conversation persistence
 ipcMain.handle('conversation:save', async (event, conversationData) => {
     try {
+        if (!workingDirectory) {
+            // If no project is open, we can't save conversation history to a file
+            // This is expected behavior on the welcome screen
+            return { success: false, error: 'No project open' };
+        }
+
         const conversationDir = path.join(workingDirectory, '.graphbus');
         const conversationFile = path.join(conversationDir, 'conversation_history.json');
 
@@ -985,101 +1050,15 @@ ipcMain.handle('conversation:clear', async (event) => {
     }
 });
 
-// Git and GitHub integration
-ipcMain.handle('git:create-branch', async (event, branchName) => {
-    try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
 
-        // Create and checkout new branch
-        await execAsync(`git checkout -b ${branchName}`, { cwd: workingDirectory });
-
-        return { success: true, branch: branchName };
-    } catch (error) {
-        return { success: false, error: error.message };
-    }
-});
-
-ipcMain.handle('git:commit-and-push', async (event, message, branchName) => {
-    try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
-        // Add all changes
-        await execAsync('git add .', { cwd: workingDirectory });
-
-        // Commit
-        await execAsync(`git commit -m "${message}"`, { cwd: workingDirectory });
-
-        // Push to remote
-        await execAsync(`git push -u origin ${branchName}`, { cwd: workingDirectory });
-
-        return { success: true };
-    } catch (error) {
-        return { success: false, error: error.message };
-    }
-});
-
-ipcMain.handle('github:create-pr', async (event, title, body, branchName) => {
-    try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
-        // Create PR using gh CLI
-        const { stdout } = await execAsync(
-            `gh pr create --title "${title}" --body "${body}" --head ${branchName}`,
-            { cwd: workingDirectory }
-        );
-
-        // Extract PR URL from output
-        const urlMatch = stdout.match(/https:\/\/github\.com\/[^\s]+/);
-        const prUrl = urlMatch ? urlMatch[0] : null;
-
-        // Extract PR number
-        const prNumberMatch = prUrl ? prUrl.match(/\/pull\/(\d+)/) : null;
-        const prNumber = prNumberMatch ? parseInt(prNumberMatch[1]) : null;
-
-        return { success: true, url: prUrl, number: prNumber };
-    } catch (error) {
-        return { success: false, error: error.message };
-    }
-});
-
-ipcMain.handle('github:get-pr-comments', async (event, prNumber) => {
-    try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
-        // Get PR comments using gh CLI
-        const { stdout } = await execAsync(
-            `gh pr view ${prNumber} --json comments`,
-            { cwd: workingDirectory }
-        );
-
-        const result = JSON.parse(stdout);
-        const comments = result.comments || [];
-
-        // Transform to expected format
-        const formattedComments = comments.map(comment => ({
-            user: {
-                login: comment.author.login
-            },
-            body: comment.body,
-            created_at: comment.createdAt
-        }));
-
-        return { success: true, comments: formattedComments };
-    } catch (error) {
-        return { success: false, error: error.message };
-    }
-});
 
 ipcMain.handle('pr:save-tracking', async (event, prData) => {
     try {
+        if (!workingDirectory) {
+            // If no project is open, we can't save PR tracking to a file
+            return { success: false, error: 'No project open' };
+        }
+
         const graphbusDir = path.join(workingDirectory, '.graphbus');
         const trackingFile = path.join(graphbusDir, 'pr_tracking.json');
 
@@ -1140,7 +1119,7 @@ ipcMain.handle('system:browse-directory', async (event) => {
     try {
         const result = await dialog.showOpenDialog(mainWindow, {
             properties: ['openDirectory'],
-            defaultPath: workingDirectory,
+            defaultPath: workingDirectory || require('os').homedir(),
             title: 'Select Working Directory'
         });
 
@@ -1158,7 +1137,8 @@ ipcMain.handle('system:browse-directory', async (event) => {
 // Claude AI operations
 ipcMain.handle('claude:initialize', async (event, apiKey, shouldSave = true) => {
     try {
-        claudeService.initialize(apiKey, workingDirectory);
+        const llmConfig = loadLLMConfig(workingDirectory);
+        claudeService.initialize(apiKey, workingDirectory, llmConfig);
 
         // Save API key to config file if requested (don't validate yet, will fail on first actual use)
         if (shouldSave) {

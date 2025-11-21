@@ -7,7 +7,8 @@
     "start": "electron .",
     "start:dir": "echo 'Usage: npm run start:dir /path/to/directory' && echo 'Or: npm start -- --dir=/path/to/directory'",
     "build": "electron-builder",
-    "dev": "electron . --enable-logging"
+    "dev": "electron . --enable-logging",
+    "test:e2e": "playwright test"
   },
   "keywords": [
     "graphbus",
@@ -19,13 +20,16 @@
   "author": "GraphBus",
   "license": "MIT",
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
     "electron": "^28.0.0",
-    "electron-builder": "^24.9.0"
+    "electron-builder": "^24.9.0",
+    "playwright": "^1.56.1"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.69.0",
     "python-shell": "^5.0.0",
-    "ws": "^8.16.0"
+    "ws": "^8.16.0",
+    "yaml": "^2.3.0"
   },
   "build": {
     "appId": "com.graphbus.ui",

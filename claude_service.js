@@ -7,12 +7,27 @@ class ClaudeService {
         this.client = null;
         this.conversationHistory = [];
         this.systemPrompt = null;
+        this.model = 'claude-sonnet-4-5-20250929';
+        this.temperature = 0.7;
+        this.maxTokens = 4096;
     }
 
-    initialize(apiKey, workingDirectory) {
+    initialize(apiKey, workingDirectory, llmConfig = {}) {
         this.apiKey = apiKey;
         this.client = new Anthropic({ apiKey: this.apiKey });
         this.conversationHistory = [];
+
+        // Set model and other config from llmConfig if provided
+        if (llmConfig && llmConfig.model) {
+            this.model = llmConfig.model;
+            console.log('Using model from config:', this.model);
+        }
+        if (llmConfig && llmConfig.temperature !== undefined) {
+            this.temperature = llmConfig.temperature;
+        }
+        if (llmConfig && llmConfig.max_tokens) {
+            this.maxTokens = llmConfig.max_tokens;
+        }
 
         // System prompt that teaches Claude about GraphBus
         this.systemPrompt = `You are a GraphBus Coach - an AI assistant that helps users understand and use the GraphBus agent orchestration framework.
@@ -470,8 +485,8 @@ NEVER leave compound requests half-finished!`;
 
         try {
             const response = await this.client.messages.create({
-                model: 'claude-sonnet-4-5-20250929',
-                max_tokens: 4096,
+                model: this.model,
+                max_tokens: this.maxTokens,
                 system: this.systemPrompt,
                 messages: this.conversationHistory
             });
