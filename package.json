@@ -1,6 +1,6 @@
 {
   "name": "graphbus-ui",
-  "version": "0.1.5+f1a7cd7",
+  "version": "0.1.5+9acc93b",
   "description": "Electron UI for GraphBus agent orchestration with natural language control",
   "main": "main.js",
   "scripts": {

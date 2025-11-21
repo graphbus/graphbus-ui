@@ -512,6 +512,7 @@ button:hover {
     height: 48px;
     align-items: center;
     gap: 4px;
+    margin-left: 20vw;
 }
 
 .tab-btn {
