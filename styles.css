@@ -695,6 +695,7 @@ button:hover {
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Courier New', monospace !important;
     font-size: 13px !important;
     background: #0a0a0a !important;
+    color: #e5e7eb !important;
 }
 
 #fileEditorContainer .CodeMirror-gutters {
@@ -709,6 +710,35 @@ button:hover {
 #fileEditorContainer .CodeMirror-cursor {
     border-left: 1px solid #e5e7eb !important;
 }
+
+/* Syntax highlighting colors for dark mode */
+#fileEditorContainer .cm-atom { color: #7ec699 !important; }
+#fileEditorContainer .cm-number { color: #dcdcaa !important; }
+#fileEditorContainer .cm-string { color: #98c379 !important; }
+#fileEditorContainer .cm-string-2 { color: #98c379 !important; }
+#fileEditorContainer .cm-comment { color: #5a5f77 !important; }
+#fileEditorContainer .cm-operator { color: #c7c7d3 !important; }
+#fileEditorContainer .cm-keyword { color: #c586c0 !important; }
+#fileEditorContainer .cm-variable { color: #9cdcfe !important; }
+#fileEditorContainer .cm-variable-2 { color: #4ec9b0 !important; }
+#fileEditorContainer .cm-type { color: #4ec9b0 !important; }
+#fileEditorContainer .cm-property { color: #9cdcfe !important; }
+#fileEditorContainer .cm-qualifier { color: #c586c0 !important; }
+#fileEditorContainer .cm-error { color: #ff5353 !important; }
+#fileEditorContainer .cm-definition { color: #dcdcaa !important; }
+#fileEditorContainer .cm-tag { color: #c586c0 !important; }
+#fileEditorContainer .cm-attribute { color: #98c379 !important; }
+#fileEditorContainer .cm-bracket { color: #c7c7d3 !important; }
+#fileEditorContainer .cm-builtin { color: #c586c0 !important; }
+#fileEditorContainer .cm-quote { color: #5a5f77 !important; }
+
+/* Selection colors */
+#fileEditorContainer .CodeMirror-selected { background: #264f78 !important; }
+#fileEditorContainer .CodeMirror-line::selection { background: #264f78 !important; }
+#fileEditorContainer .CodeMirror-line > span::selection { background: #264f78 !important; }
+
+/* Highlight line background */
+#fileEditorContainer .CodeMirror-activeline-background { background: #1a1a2e !important; }
 
 /* Legacy textarea styling (for fallback) */
 #fileEditor {
