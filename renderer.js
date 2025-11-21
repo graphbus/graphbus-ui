@@ -3357,15 +3357,26 @@ let fileModified = {};
  */
 async function loadFileTree() {
     const fileTreeContainer = document.getElementById('fileTree');
+
+    if (!workingDirectory) {
+        fileTreeContainer.innerHTML = '<div style="padding: 20px; text-align: center; color: #888;">📁 Open or create a project to view files</div>';
+        return;
+    }
+
     fileTreeContainer.innerHTML = '<div class="loading" style="padding: 20px; text-align: center; color: #666;">Loading files...</div>';
 
     try {
+        console.log('Loading files from:', workingDirectory);
         const result = await window.graphbus.listFiles(workingDirectory);
+        console.log('File list result:', result);
 
         if (result.success) {
+            console.log('Files loaded:', result.result?.length || 0, 'files');
             const tree = buildFileTreeHTML(result.result, workingDirectory);
+            console.log('File tree HTML generated:', tree?.length || 0, 'chars');
             fileTreeContainer.innerHTML = tree || '<div style="padding: 20px; text-align: center; color: #666;">No files found</div>';
         } else {
+            console.error('File list failed:', result.error);
             fileTreeContainer.innerHTML = `<div style="padding: 20px; text-align: center; color: #f87171;">${result.error || 'Error loading files'}</div>`;
         }
     } catch (error) {
