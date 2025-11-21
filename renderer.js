@@ -771,9 +771,13 @@ window.menu.onInitialWorkingDirectory((dir) => {
 
     // Function to show main layout and hide welcome screen
     function showMainLayout() {
+        const loadingScreen = document.getElementById('loadingScreen');
         const welcomeScreen = document.getElementById('welcomeScreen');
         const mainLayout = document.querySelector('.main-layout');
 
+        if (loadingScreen) {
+            loadingScreen.classList.add('hidden');
+        }
         if (welcomeScreen) {
             welcomeScreen.classList.add('hidden');
         }
@@ -4808,6 +4812,10 @@ let newProjectDirectory = null;
 
 function showWelcomeScreen() {
     console.log('[DEBUG] showWelcomeScreen called');
+    const loadingScreen = document.getElementById('loadingScreen');
+    if (loadingScreen) {
+        loadingScreen.classList.add('hidden');
+    }
     document.getElementById('welcomeScreen').style.display = 'flex';
     document.querySelector('.main-layout').style.display = 'none';
 }

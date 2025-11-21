@@ -50,8 +50,16 @@
 
 <body>
     <div class="app-container">
+        <!-- Loading Screen -->
+        <div id="loadingScreen" class="loading-screen">
+            <div class="loading-content">
+                <div class="loading-spinner"></div>
+                <p>Loading GraphBus UI...</p>
+            </div>
+        </div>
+
         <!-- Welcome Screen (shown on first load) -->
-        <div id="welcomeScreen" class="welcome-screen" style="display: flex;">
+        <div id="welcomeScreen" class="welcome-screen" style="display: none;">
             <div class="welcome-content">
                 <div class="welcome-header">
                     <h1>🚀 Welcome to GraphBus UI</h1>
