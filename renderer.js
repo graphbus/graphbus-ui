@@ -42,7 +42,21 @@ function initializeCodeMirror() {
         styleActiveLine: true,
         matchBrackets: true,
         autofocus: false,
-        height: '100%'
+        height: '100%',
+        extraKeys: {
+            'Ctrl-S': saveCurrentFile,
+            'Cmd-S': saveCurrentFile,
+            'Ctrl-Z': 'undo',
+            'Cmd-Z': 'undo',
+            'Ctrl-Shift-Z': 'redo',
+            'Cmd-Shift-Z': 'redo',
+            'Ctrl-Y': 'redo',
+            'Cmd-Y': 'redo',
+            'Ctrl-F': 'find',
+            'Cmd-F': 'find',
+            'Ctrl-H': 'replace',
+            'Cmd-H': 'replace'
+        }
     });
 
     // Set editor to fill container
