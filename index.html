@@ -228,10 +228,41 @@
                                 <button class="mode-btn mode-cmd" data-mode="cmd" title="Force as command">Cmd</button>
                                 <button class="mode-btn mode-prompt" data-mode="prompt" title="Force as prompt">Prompt</button>
                             </div>
+
+                            <!-- Terminal Info Bar (Show environment info) -->
+                            <div class="terminal-info-bar">
+                                <div class="terminal-info-group">
+                                    <span class="terminal-info-label">👤</span>
+                                    <span class="terminal-info-value" id="terminalUser">user</span>
+                                </div>
+                                <div class="terminal-info-divider">│</div>
+                                <div class="terminal-info-group">
+                                    <span class="terminal-info-label">📁</span>
+                                    <span class="terminal-info-value" id="terminalCwd" title="Working directory">/</span>
+                                </div>
+                                <div class="terminal-info-divider">│</div>
+                                <div class="terminal-info-group">
+                                    <span class="terminal-info-label">🌍</span>
+                                    <span class="terminal-info-value" id="terminalEnv">system</span>
+                                </div>
+                                <div class="terminal-info-spacer"></div>
+                                <button class="terminal-info-btn" id="envVarsBtn" title="Show environment variables">Env</button>
+                                <button class="terminal-info-btn" id="historyBtn" title="Show command history">History</button>
+                            </div>
+
                             <!-- Terminal Prompt Area (Anchored at bottom) -->
                             <div class="terminal-prompt-area">
-                                <span class="terminal-prompt">$ </span>
-                                <input type="text" id="terminalInput" class="terminal-input" placeholder="Type command or question..." autocomplete="off" />
+                                <div class="terminal-prompt-line">
+                                    <span class="terminal-prompt-user" id="terminalPromptUser">user</span>
+                                    <span class="terminal-prompt-host">@graphbus</span>
+                                    <span class="terminal-prompt-cwd" id="terminalPromptCwd">~</span>
+                                </div>
+                                <div class="terminal-input-wrapper">
+                                    <span class="terminal-prompt">$ </span>
+                                    <input type="text" id="terminalInput" class="terminal-input" placeholder="Type command or question..." autocomplete="off" />
+                                    <!-- Autocomplete suggestions -->
+                                    <div class="terminal-autocomplete" id="terminalAutocomplete"></div>
+                                </div>
                             </div>
                         </div>
 

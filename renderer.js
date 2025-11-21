@@ -7,6 +7,12 @@ let xterm = null; // xterm.js terminal instance
 let terminalInitialized = false; // Track if terminal is initialized
 let terminalMode = 'auto'; // Terminal input mode: 'auto', 'cmd', or 'prompt'
 
+// Terminal shell-like features
+let commandHistory = []; // Track command history
+let historyIndex = -1; // Current position in history
+let currentUser = 'user'; // Current user
+const knownCommands = ['ls', 'cd', 'pwd', 'cat', 'echo', 'mkdir', 'rm', 'cp', 'mv', 'chmod', 'sudo', 'grep', 'find', 'git', 'npm', 'node', 'python', 'graphbus', 'help', 'clear', 'exit', 'build', 'negotiate', 'run', 'validate', 'status'];
+
 // Initialize CodeMirror editor (using CodeMirror 5)
 function initializeCodeMirror() {
     const container = document.getElementById('fileEditorContainer');
@@ -28,6 +34,153 @@ function initializeCodeMirror() {
 
     // Set editor to fill container
     container.querySelector('.CodeMirror').style.height = '100%';
+}
+
+// Load command history from localStorage
+function loadCommandHistory() {
+    try {
+        const saved = localStorage.getItem('terminalCommandHistory');
+        commandHistory = saved ? JSON.parse(saved) : [];
+        historyIndex = -1;
+    } catch (e) {
+        commandHistory = [];
+    }
+}
+
+// Save command to history
+function addToHistory(command) {
+    commandHistory.push(command);
+    // Keep only last 100 commands
+    if (commandHistory.length > 100) {
+        commandHistory.shift();
+    }
+    try {
+        localStorage.setItem('terminalCommandHistory', JSON.stringify(commandHistory));
+    } catch (e) {
+        console.error('Failed to save command history:', e);
+    }
+    historyIndex = -1;
+}
+
+// Get command from history (up/down arrow keys)
+function getHistoryCommand(direction) {
+    if (commandHistory.length === 0) return '';
+    if (direction === 'up') {
+        if (historyIndex < commandHistory.length - 1) {
+            historyIndex++;
+        }
+    } else if (direction === 'down') {
+        if (historyIndex > 0) {
+            historyIndex--;
+        } else {
+            historyIndex = -1;
+            return '';
+        }
+    }
+    return historyIndex >= 0 ? commandHistory[commandHistory.length - 1 - historyIndex] : '';
+}
+
+// Update terminal info display
+function updateTerminalInfo() {
+    const cwdElement = document.getElementById('terminalCwd');
+    const cwdPrompt = document.getElementById('terminalPromptCwd');
+    const userElement = document.getElementById('terminalUser');
+    const userPrompt = document.getElementById('terminalPromptUser');
+    const envElement = document.getElementById('terminalEnv');
+
+    if (cwdElement && workingDirectory) {
+        const displayPath = workingDirectory === '/' ? '/' : workingDirectory.split('/').pop() || workingDirectory;
+        cwdElement.textContent = displayPath;
+        cwdElement.title = workingDirectory;
+    }
+
+    if (cwdPrompt && workingDirectory) {
+        const displayPath = workingDirectory === '/' ? '~' : workingDirectory.split('/').pop() || '~';
+        cwdPrompt.textContent = displayPath;
+    }
+
+    if (userElement) {
+        userElement.textContent = currentUser;
+    }
+
+    if (userPrompt) {
+        userPrompt.textContent = currentUser;
+    }
+
+    if (envElement) {
+        const env = detectEnvironment();
+        envElement.textContent = env;
+    }
+}
+
+// Detect active environment (Python venv, Node, etc.)
+function detectEnvironment() {
+    if (workingDirectory && workingDirectory.includes('node_modules')) return 'Node.js';
+    if (workingDirectory && (workingDirectory.includes('venv') || workingDirectory.includes('env'))) return 'Python venv';
+    // Could check for conda, etc.
+    return 'system';
+}
+
+// Show autocomplete suggestions
+function showAutocomplete(input) {
+    const autocompleteDiv = document.getElementById('terminalAutocomplete');
+    if (!input || input.length === 0) {
+        autocompleteDiv.classList.remove('show');
+        return;
+    }
+
+    const inputLower = input.toLowerCase();
+    const matches = knownCommands.filter(cmd => cmd.startsWith(inputLower));
+
+    if (matches.length === 0) {
+        autocompleteDiv.classList.remove('show');
+        return;
+    }
+
+    autocompleteDiv.innerHTML = matches.slice(0, 5).map((cmd, i) =>
+        `<div class="terminal-autocomplete-item" data-cmd="${cmd}">${cmd}</div>`
+    ).join('');
+
+    autocompleteDiv.classList.add('show');
+
+    // Add click handlers
+    autocompleteDiv.querySelectorAll('.terminal-autocomplete-item').forEach(item => {
+        item.addEventListener('click', () => {
+            const inputField = document.getElementById('terminalInput');
+            inputField.value = item.dataset.cmd;
+            autocompleteDiv.classList.remove('show');
+            inputField.focus();
+        });
+    });
+}
+
+// Show command history view
+function showCommandHistory() {
+    writeTerminal('╔════════════════════════════════════════════════════════════╗', 'header');
+    writeTerminal('║  📜 Command History (Last 20 commands)                     ║', 'header');
+    writeTerminal('╚════════════════════════════════════════════════════════════╝', 'header');
+
+    if (commandHistory.length === 0) {
+        writeTerminal('(No command history yet)');
+        return;
+    }
+
+    const recentCommands = commandHistory.slice(-20).reverse();
+    recentCommands.forEach((cmd, i) => {
+        writeTerminal(`  ${(i + 1).toString().padStart(2)}) ${cmd}`);
+    });
+}
+
+// Show environment variables
+function showEnvironmentVariables() {
+    writeTerminal('╔════════════════════════════════════════════════════════════╗', 'header');
+    writeTerminal('║  🌍 Environment Variables                                  ║', 'header');
+    writeTerminal('╚════════════════════════════════════════════════════════════╝', 'header');
+    writeTerminal(`USER: ${currentUser}`);
+    writeTerminal(`PWD: ${workingDirectory || '/'}`);
+    writeTerminal(`MODE: ${terminalMode}`);
+    writeTerminal('');
+    writeTerminal('Use "env" or "printenv" command to see more details');
 }
 
 // Use Claude Haiku to classify input as command or prompt
@@ -143,10 +296,18 @@ function initializeTerminal() {
     const outputDiv = document.getElementById('terminalOutput');
     const inputField = document.getElementById('terminalInput');
     const modeButtons = document.querySelectorAll('.mode-btn');
+    const envVarsBtn = document.getElementById('envVarsBtn');
+    const historyBtn = document.getElementById('historyBtn');
 
     if (!outputDiv || !inputField) return;
 
     terminalInitialized = true;
+
+    // Load command history
+    loadCommandHistory();
+
+    // Update terminal info display
+    updateTerminalInfo();
 
     // Write welcome message
     writeTerminal('╔════════════════════════════════════════════════════════════╗', 'header');
@@ -155,6 +316,7 @@ function initializeTerminal() {
     writeTerminal('╚════════════════════════════════════════════════════════════╝', 'header');
     writeTerminal('');
     writeTerminal('Mode: Auto-detect with Claude Haiku');
+    writeTerminal('Keyboard shortcuts: ↑/↓ = History, Tab = Autocomplete, Ctrl+C = Clear');
     writeTerminal('Available modes:');
     writeTerminal('  • Commands: ls, build, negotiate, run, validate, status');
     writeTerminal('  • Questions: Natural language queries sent to Claude');
@@ -172,13 +334,71 @@ function initializeTerminal() {
         });
     });
 
+    // Handle Env button
+    if (envVarsBtn) {
+        envVarsBtn.addEventListener('click', () => {
+            showEnvironmentVariables();
+            inputField.focus();
+        });
+    }
+
+    // Handle History button
+    if (historyBtn) {
+        historyBtn.addEventListener('click', () => {
+            showCommandHistory();
+            inputField.focus();
+        });
+    }
+
+    // Handle input field keyboard events
+    inputField.addEventListener('keydown', async (e) => {
+        // Arrow keys for history navigation
+        if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            const cmd = getHistoryCommand('up');
+            inputField.value = cmd;
+        } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            const cmd = getHistoryCommand('down');
+            inputField.value = cmd;
+        }
+        // Tab for autocomplete
+        else if (e.key === 'Tab') {
+            e.preventDefault();
+            const input = inputField.value.trim();
+            if (input) {
+                showAutocomplete(input);
+            }
+        }
+        // Ctrl+C to clear
+        else if (e.ctrlKey && e.key === 'c') {
+            e.preventDefault();
+            inputField.value = '';
+            document.getElementById('terminalAutocomplete').classList.remove('show');
+        }
+    });
+
+    // Handle input for autocomplete
+    inputField.addEventListener('input', (e) => {
+        const input = e.target.value.trim();
+        if (input.length > 0 && !input.includes(' ')) {
+            showAutocomplete(input);
+        } else {
+            document.getElementById('terminalAutocomplete').classList.remove('show');
+        }
+    });
+
     // Handle input field Enter key
     inputField.addEventListener('keypress', async (e) => {
         if (e.key === 'Enter') {
             const input = inputField.value.trim();
             inputField.value = ''; // Clear input
+            document.getElementById('terminalAutocomplete').classList.remove('show');
 
             if (!input) return;
+
+            // Add to history
+            addToHistory(input);
 
             // Echo input to terminal
             writeTerminal(`$ ${input}`, 'command');
@@ -380,10 +600,8 @@ let workflowState = {
     isProcessingCompoundRequest: false // Track if Claude is handling multi-step request
 };
 
-// Command history for arrow key navigation
-let commandHistory = [];
-let historyIndex = -1; // -1 means not navigating history
-let currentDraft = ''; // Store current input when starting to navigate history
+// currentDraft stores current input when navigating history
+let currentDraft = '';
 
 // Auto-negotiation tracking
 let pendingAutoNegotiation = false;

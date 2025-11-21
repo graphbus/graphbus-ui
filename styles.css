@@ -902,6 +902,145 @@ button:hover {
     background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
 }
 
+/* Terminal Info Bar - Shows user, cwd, environment */
+.terminal-info-bar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 16px;
+    background: #0f0f0f;
+    border-top: 1px solid #1a1a1a;
+    border-bottom: 1px solid #1a1a1a;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: #888;
+    flex-wrap: wrap;
+}
+
+.terminal-info-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.terminal-info-label {
+    font-size: 14px;
+}
+
+.terminal-info-value {
+    color: #aaa;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Courier New', monospace;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.terminal-info-divider {
+    color: #333;
+    opacity: 0.5;
+}
+
+.terminal-info-spacer {
+    flex: 1;
+}
+
+.terminal-info-btn {
+    padding: 4px 10px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    color: #888;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Courier New', monospace;
+    font-size: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 3px;
+    transition: all 0.2s ease;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.terminal-info-btn:hover {
+    background: #252525;
+    border-color: #444;
+    color: #aaa;
+}
+
+/* Terminal Prompt Line - Shows user@host:path */
+.terminal-prompt-line {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 0 16px;
+    margin-top: 4px;
+    font-size: 13px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Courier New', monospace;
+}
+
+.terminal-prompt-user {
+    color: #55ff55;
+    font-weight: 600;
+}
+
+.terminal-prompt-host {
+    color: #888;
+    margin: 0 2px;
+}
+
+.terminal-prompt-cwd {
+    color: #4facfe;
+    margin: 0 2px;
+}
+
+/* Terminal Input Wrapper */
+.terminal-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 16px 12px 16px;
+    position: relative;
+}
+
+/* Autocomplete Suggestions */
+.terminal-autocomplete {
+    display: none;
+    position: absolute;
+    bottom: 35px;
+    left: 16px;
+    right: 16px;
+    background: #1a1a1a;
+    border: 1px solid #333;
+    border-radius: 4px;
+    max-height: 150px;
+    overflow-y: auto;
+    z-index: 1000;
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.5);
+}
+
+.terminal-autocomplete.show {
+    display: block;
+}
+
+.terminal-autocomplete-item {
+    padding: 8px 12px;
+    color: #aaa;
+    cursor: pointer;
+    border-bottom: 1px solid #252525;
+    font-size: 12px;
+    font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Courier New', monospace;
+    transition: background-color 0.15s ease;
+}
+
+.terminal-autocomplete-item:last-child {
+    border-bottom: none;
+}
+
+.terminal-autocomplete-item:hover,
+.terminal-autocomplete-item.selected {
+    background: #252525;
+    color: #667eea;
+}
+
 .conversation-input-section {
     display: none; /* Hidden in favor of terminal input */
     background: #121212;
