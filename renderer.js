@@ -675,7 +675,31 @@ async function sendPromptToClaude(prompt) {
                 if (params) {
                     writeTerminal(`   Parameters: ${JSON.stringify(params)}`);
                 }
-                // Action execution would happen here through workflow
+
+                // Execute the suggested action
+                if (action === 'run_command' && params && params.command) {
+                    try {
+                        const cmdResult = await window.graphbus.runCommand(params.command);
+                        if (cmdResult.success) {
+                            if (cmdResult.result.stdout) {
+                                const lines = cmdResult.result.stdout.split('\n');
+                                lines.forEach(line => {
+                                    if (line.trim()) writeTerminal(line);
+                                });
+                            }
+                        } else {
+                            writeTerminal(`❌ Command failed: ${cmdResult.error || 'Unknown error'}`, 'error');
+                            if (cmdResult.result && cmdResult.result.stderr) {
+                                const errLines = cmdResult.result.stderr.split('\n');
+                                errLines.forEach(line => {
+                                    if (line.trim()) writeTerminal(`  ${line}`, 'error');
+                                });
+                            }
+                        }
+                    } catch (error) {
+                        writeTerminal(`❌ Error executing command: ${error.message}`, 'error');
+                    }
+                }
             }
 
             // Check for structured plan
