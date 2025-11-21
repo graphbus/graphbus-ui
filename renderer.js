@@ -25,6 +25,9 @@ let currentDraft = ''; // Store current input when starting to navigate history
 let pendingAutoNegotiation = false;
 let autoNegotiationIntent = '';
 
+// Project metadata
+let projectDescription = ''; // Editable project description/intent
+
 // Command history persistence
 const HISTORY_STORAGE_KEY = 'graphbus_command_history';
 const MAX_HISTORY_SIZE = 100;
@@ -87,7 +90,7 @@ const DEFAULT_WORKFLOW_STAGES = {
         autoProgress: true,
         nextStage: 'negotiate',
         action: (state) => ({
-            prompt: `🏗️ Building agents and analyzing dependencies...\n💡 Intent: "${state.intent || 'improve system'}"`,
+            prompt: `🏗️ Building agents and analyzing dependencies...\n💡 Intent: "${projectDescription || state.intent || 'improve system'}"`,
             command: 'graphbus build agents/ --enable-agents -v',
             autoRun: true
         })
@@ -100,8 +103,8 @@ const DEFAULT_WORKFLOW_STAGES = {
         nextStage: 'runtime',
         requiredInput: false,
         action: (state) => ({
-            prompt: `🤝 Running negotiation with intent: "${state.intent || 'improve system'}"`,
-            command: `graphbus negotiate .graphbus --intent "${state.intent || 'enhance agent implementation'}" --rounds 5 -v`,
+            prompt: `🤝 Running negotiation with intent: "${projectDescription || state.intent || 'improve system'}"`,
+            command: `graphbus negotiate .graphbus --intent "${projectDescription || state.intent || 'enhance agent implementation'}" --rounds 5 -v`,
             autoRun: true
         })
     },
@@ -1377,7 +1380,8 @@ async function autoBuildAgents() {
     currentArtifactsDir = `${workingDirectory}/.graphbus`;
 
     try {
-        addMessage(`Building agents in ${workingDirectory}/${agentsDir}...`, 'assistant');
+        const intentMsg = projectDescription ? `\n💡 Intent: ${projectDescription}` : '';
+        addMessage(`Building agents in ${workingDirectory}/${agentsDir}...${intentMsg}`, 'assistant');
 
         // Use the CLI command which will automatically use ANTHROPIC_API_KEY from environment
         await runShellCommand(buildCommand);
@@ -1626,6 +1630,52 @@ async function loadConversation() {
     } catch (error) {
         console.error('Failed to load conversation:', error);
     }
+}
+
+// Save project metadata (description/intent)
+async function saveProjectMetadata(description) {
+    try {
+        if (!workingDirectory) return;
+
+        const metadata = {
+            description: description || projectDescription,
+            createdAt: new Date().toISOString()
+        };
+
+        // Save to .graphbus/project.json
+        const result = await window.graphbus.writeFile(
+            `${workingDirectory}/.graphbus/project.json`,
+            JSON.stringify(metadata, null, 2)
+        );
+
+        if (result.success) {
+            projectDescription = description || projectDescription;
+            console.log('Project metadata saved:', metadata);
+        }
+    } catch (error) {
+        console.error('Failed to save project metadata:', error);
+    }
+}
+
+// Load project metadata (description/intent)
+async function loadProjectMetadata() {
+    try {
+        if (!workingDirectory) return;
+
+        const result = await window.graphbus.readFile(
+            `${workingDirectory}/.graphbus/project.json`
+        );
+
+        if (result.success && result.result) {
+            const metadata = JSON.parse(result.result);
+            projectDescription = metadata.description || '';
+            console.log('Project metadata loaded:', metadata);
+            return metadata;
+        }
+    } catch (error) {
+        console.error('Failed to load project metadata:', error);
+    }
+    return null;
 }
 
 async function sendCommand() {
@@ -3755,6 +3805,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 // Rehydrate complete state from .graphbus folder
 async function checkAndLoadExistingState() {
     try {
+        // Load project metadata (description/intent)
+        await loadProjectMetadata();
+
         // Call the new rehydrate-state API
         const result = await window.graphbus.rehydrateState(workingDirectory);
 
@@ -3965,6 +4018,9 @@ async function createNewProject() {
     await window.graphbus.setWorkingDirectory(newProjectDirectory);
     workingDirectory = newProjectDirectory;
     updateWorkingDirectoryDisplay();
+
+    // Save project metadata
+    await saveProjectMetadata(description);
 
     // Add message about project creation
     addMessage(`🚀 Creating new GraphBus project in ${newProjectDirectory}`, 'system');
