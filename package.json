@@ -27,6 +27,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.69.0",
+    "openai": "^4.32.0",
     "python-shell": "^5.0.0",
     "ws": "^8.16.0",
     "yaml": "^2.3.0"

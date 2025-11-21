@@ -1,5 +1,6 @@
 // claude_service.js - Claude AI integration for conversational interface
 const Anthropic = require('@anthropic-ai/sdk');
+const OpenAI = require('openai');
 
 class ClaudeService {
     constructor() {
@@ -8,13 +9,14 @@ class ClaudeService {
         this.conversationHistory = [];
         this.systemPrompt = null;
         this.model = 'claude-sonnet-4-5-20250929';
+        this.provider = 'anthropic';
+        this.baseUrl = null;
         this.temperature = 0.7;
         this.maxTokens = 4096;
     }
 
     initialize(apiKey, workingDirectory, llmConfig = {}) {
         this.apiKey = apiKey;
-        this.client = new Anthropic({ apiKey: this.apiKey });
         this.conversationHistory = [];
 
         // Set model and other config from llmConfig if provided
@@ -22,11 +24,34 @@ class ClaudeService {
             this.model = llmConfig.model;
             console.log('Using model from config:', this.model);
         }
+        if (llmConfig && llmConfig.provider) {
+            this.provider = llmConfig.provider;
+            console.log('Using provider from config:', this.provider);
+        }
+        if (llmConfig && llmConfig.base_url) {
+            this.baseUrl = llmConfig.base_url;
+            console.log('Using base_url from config:', this.baseUrl);
+        }
         if (llmConfig && llmConfig.temperature !== undefined) {
             this.temperature = llmConfig.temperature;
         }
         if (llmConfig && llmConfig.max_tokens) {
             this.maxTokens = llmConfig.max_tokens;
+        }
+
+        // Initialize the appropriate client based on provider
+        if (this.provider === 'openai' || this.provider.includes('openai')) {
+            // OpenAI or OpenAI-compatible endpoint
+            const clientOptions = { apiKey: this.apiKey };
+            if (this.baseUrl) {
+                clientOptions.baseURL = this.baseUrl;
+            }
+            this.client = new OpenAI(clientOptions);
+            console.log('Initialized OpenAI client' + (this.baseUrl ? ` with base URL: ${this.baseUrl}` : ''));
+        } else {
+            // Default to Anthropic
+            this.client = new Anthropic({ apiKey: this.apiKey });
+            console.log('Initialized Anthropic client');
         }
 
         // System prompt that teaches Claude about GraphBus
@@ -484,14 +509,28 @@ NEVER leave compound requests half-finished!`;
         });
 
         try {
-            const response = await this.client.messages.create({
-                model: this.model,
-                max_tokens: this.maxTokens,
-                system: this.systemPrompt,
-                messages: this.conversationHistory
-            });
+            let assistantMessage;
 
-            let assistantMessage = response.content[0].text;
+            if (this.provider === 'openai' || this.provider.includes('openai')) {
+                // Use OpenAI API (including OpenAI-compatible endpoints like gpt-oss-20b)
+                const response = await this.client.chat.completions.create({
+                    model: this.model,
+                    max_tokens: this.maxTokens,
+                    temperature: this.temperature,
+                    system: this.systemPrompt,
+                    messages: this.conversationHistory
+                });
+                assistantMessage = response.choices[0].message.content;
+            } else {
+                // Use Anthropic API
+                const response = await this.client.messages.create({
+                    model: this.model,
+                    max_tokens: this.maxTokens,
+                    system: this.systemPrompt,
+                    messages: this.conversationHistory
+                });
+                assistantMessage = response.content[0].text;
+            }
 
             // Strip markdown code fences if present (```json ... ``` or ``` ... ```)
             assistantMessage = assistantMessage.replace(/```json?\s*/g, '').replace(/```\s*$/g, '').trim();
