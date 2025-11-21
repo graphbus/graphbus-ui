@@ -730,6 +730,23 @@ async function sendPromptToClaude(prompt) {
     }
 }
 
+// Rehydrate project state from working directory
+async function rehydrateState(dir) {
+    try {
+        console.log('[Rehydrate] Starting state rehydration for:', dir);
+        const result = await window.graphbus.rehydrateState(dir);
+        if (result && result.success) {
+            console.log('[Rehydrate] State rehydrated successfully');
+            // Trigger initial update of views
+            updateSystemStateDisplay();
+        } else {
+            console.error('[Rehydrate] Failed to rehydrate state:', result?.error);
+        }
+    } catch (error) {
+        console.error('[Rehydrate] Error rehydrating state:', error);
+    }
+}
+
 // Listen for initial working directory from main process (when passed via CLI args)
 window.menu.onInitialWorkingDirectory((dir) => {
     console.log('[Renderer] Received initial working directory:', dir);
@@ -737,10 +754,10 @@ window.menu.onInitialWorkingDirectory((dir) => {
 
     // Wait for DOM to be ready before hiding welcome screen
     if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', () => {
+        document.addEventListener('DOMContentLoaded', async () => {
             document.getElementById('welcomeScreen').style.display = 'none';
             document.querySelector('.main-layout').style.display = 'flex';
-            rehydrateState(workingDirectory);
+            await rehydrateState(workingDirectory);
         });
     } else {
         // DOM is already loaded
