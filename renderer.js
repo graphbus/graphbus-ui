@@ -1,11 +1,16 @@
 // renderer.js - UI logic and GraphBus API calls
 
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import AgentGraph from './AgentGraph.jsx';
+
 let statusInterval;
 let workingDirectory = null; // Will be set from main process
 let codeMirrorEditor = null; // CodeMirror editor instance
 let xterm = null; // xterm.js terminal instance
 let terminalInitialized = false; // Track if terminal is initialized
 let terminalMode = 'auto'; // Terminal input mode: 'auto', 'cmd', or 'prompt'
+let graphRoot = null; // React root for graph component
 
 // Terminal shell-like features
 let commandHistory = []; // Track command history
@@ -3523,8 +3528,9 @@ let currentGraphData = { nodes: [], edges: [] };
 let graphNetwork = null;
 
 function displayAgents(nodes, edges = []) {
+    const graphCanvas = document.getElementById('graphCanvas');
+
     if (!nodes || nodes.length === 0) {
-        const graphCanvas = document.getElementById('graphCanvas');
         graphCanvas.innerHTML = '<p class="placeholder" style="padding: 20px; text-align: center;">No agents to display</p>';
         document.getElementById('nodesCount').textContent = '0';
         return;
@@ -3547,131 +3553,27 @@ function displayAgents(nodes, edges = []) {
     // Store graph data
     currentGraphData = { nodes, edges };
 
-    // Prepare vis.js data
-    const visNodes = nodes.map(node => ({
-        id: node.name,
-        label: node.name,
-        title: `<b>${node.name}</b><br/>Module: ${node.module}<br/>Methods: ${node.methods.join(', ')}`,
-        color: {
-            background: '#667eea',
-            border: '#4c51bf',
-            highlight: {
-                background: '#818cf8',
-                border: '#6366f1'
-            }
-        },
-        font: { color: '#ffffff' },
-        shape: 'box',
-        data: node // Store full node data
-    }));
+    // Clear the container
+    graphCanvas.innerHTML = '';
 
-    const visEdges = edges.map(edge => ({
-        from: edge.source,
-        to: edge.target,
-        arrows: {
-            to: {
-                enabled: true,
-                scaleFactor: 1,
-                type: 'arrow'
-            }
-        },
-        color: {
-            color: '#f59e0b',
-            highlight: '#fbbf24',
-            hover: '#fbbf24',
-            opacity: 1.0
-        },
-        width: 3,
-        label: edge.type || 'depends_on',
-        font: {
-            color: '#888',
-            size: 11,
-            align: 'middle',
-            background: 'rgba(0, 0, 0, 0.6)',
-            strokeWidth: 0
-        },
-        smooth: {
-            enabled: true,
-            type: 'cubicBezier',
-            roundness: 0.5
-        }
-    }));
+    // Create React root if it doesn't exist
+    if (!graphRoot) {
+        graphRoot = ReactDOM.createRoot(graphCanvas);
+    }
 
-    // Debug: Log vis.js formatted edges
-    console.log('vis.js edges:', visEdges);
-
-    // Create network
-    const container = document.getElementById('graphCanvas');
-    const data = { nodes: visNodes, edges: visEdges };
-
-    console.log('Creating vis.js network with data:', data);
-    const options = {
-        nodes: {
-            borderWidth: 2,
-            borderWidthSelected: 3,
-            font: { size: 14, face: 'monospace' }
-        },
-        edges: {
-            width: 2,
-            selectionWidth: 3
-        },
-        physics: {
-            enabled: true,
-            barnesHut: {
-                gravitationalConstant: -8000,
-                springLength: 150,
-                springConstant: 0.04
-            },
-            stabilization: {
-                iterations: 200
-            }
-        },
-        interaction: {
-            hover: true,
-            tooltipDelay: 100,
-            navigationButtons: true,
-            keyboard: false // Disable by default, enable on focus
-        }
-    };
-
-    graphNetwork = new vis.Network(container, data, options);
-
-    // Make canvas focusable
-    container.setAttribute('tabindex', '0');
-
-    // Enable keyboard controls only when graph is focused
-    container.addEventListener('focus', () => {
-        if (graphNetwork) {
-            graphNetwork.setOptions({ interaction: { keyboard: true } });
-        }
-    });
-
-    container.addEventListener('blur', () => {
-        if (graphNetwork) {
-            graphNetwork.setOptions({ interaction: { keyboard: false } });
-        }
-    });
-
-    // Focus graph when clicked
-    container.addEventListener('click', () => {
-        container.focus();
-    });
-
-    // Add click handler for negotiation
-    graphNetwork.on('click', (params) => {
-        if (params.nodes.length > 0) {
-            const nodeId = params.nodes[0];
-            showAgentActions(nodeId);
-        }
-    });
-
-    // Add double-click for negotiation
-    graphNetwork.on('doubleClick', (params) => {
-        if (params.nodes.length > 0) {
-            const nodeId = params.nodes[0];
-            negotiateAgent(nodeId);
-        }
-    });
+    // Render the React Flow graph component
+    try {
+        graphRoot.render(
+            React.createElement(AgentGraph, {
+                nodes: nodes,
+                edges: edges
+            })
+        );
+        console.log('React Flow graph rendered successfully');
+    } catch (error) {
+        console.error('Error rendering React Flow graph:', error);
+        graphCanvas.innerHTML = `<p class="placeholder" style="padding: 20px; color: red;">Error loading graph: ${error.message}</p>`;
+    }
 }
 
 // Show actions for selected agent

@@ -18,30 +18,32 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/markdown/markdown.min.js"></script>
     <!-- xterm.js for terminal -->
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
-    <!-- vis.js for graph visualization -->
-    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
     <style>
         #graphCanvas {
             width: 100%;
             height: 100%;
-            border: 1px solid #333;
-            background: #1a1a1a;
+            border: none;
+            background: #0f0f0f;
         }
 
-        /* Style vis.js navigation buttons for dark theme */
-        .vis-network .vis-navigation .vis-button {
-            background-color: rgba(102, 126, 234, 0.8) !important;
+        /* React Flow styles */
+        .react-flow__minimap {
+            background-color: rgba(0, 0, 0, 0.3) !important;
+        }
+
+        .react-flow__controls {
+            background-color: rgba(102, 126, 234, 0.1) !important;
             border: 1px solid #667eea !important;
         }
 
-        .vis-network .vis-navigation .vis-button:hover {
-            background-color: rgba(129, 140, 248, 0.9) !important;
-            box-shadow: 0 0 10px rgba(102, 126, 234, 0.5) !important;
+        .react-flow__controls button {
+            background-color: rgba(102, 126, 234, 0.3) !important;
+            color: #fff !important;
+            border: 1px solid #667eea !important;
         }
 
-        /* Make sure buttons are visible */
-        .vis-network .vis-navigation {
-            opacity: 1 !important;
+        .react-flow__controls button:hover {
+            background-color: rgba(102, 126, 234, 0.5) !important;
         }
     </style>
 </head>
@@ -542,7 +544,7 @@
         </div>
     </div>
 
-    <script src="renderer.js"></script>
+    <script type="module" src="renderer.js"></script>
 
     <!-- Interactive Prompt Modal -->
     <div id="promptModal" class="modal" style="display: none;">
