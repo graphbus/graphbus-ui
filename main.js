@@ -391,6 +391,14 @@ function createWindow() {
 
     mainWindow.loadFile('index.html');
 
+    // Send initial working directory to renderer (if provided via CLI)
+    mainWindow.webContents.on('did-finish-load', () => {
+        if (workingDirectory) {
+            mainWindow.webContents.send('initial-working-directory', workingDirectory);
+            console.log('Sent initial working directory to renderer:', workingDirectory);
+        }
+    });
+
     // Open DevTools in development
     if (process.argv.includes('--enable-logging')) {
         mainWindow.webContents.openDevTools();

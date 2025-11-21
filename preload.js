@@ -10,7 +10,8 @@ contextBridge.exposeInMainWorld('menu', {
     onBuildAgents: (callback) => ipcRenderer.on('menu:build-agents', callback),
     onNegotiate: (callback) => ipcRenderer.on('menu:negotiate', callback),
     onStartRuntime: (callback) => ipcRenderer.on('menu:start-runtime', callback),
-    onStopRuntime: (callback) => ipcRenderer.on('menu:stop-runtime', callback)
+    onStopRuntime: (callback) => ipcRenderer.on('menu:stop-runtime', callback),
+    onInitialWorkingDirectory: (callback) => ipcRenderer.on('initial-working-directory', (event, dir) => callback(dir))
 });
 
 // Expose protected methods to renderer

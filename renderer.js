@@ -2,6 +2,50 @@
 
 let statusInterval;
 let workingDirectory = null; // Will be set from main process
+let codeMirrorEditor = null; // CodeMirror editor instance
+
+// Initialize CodeMirror editor (using CodeMirror 5)
+function initializeCodeMirror() {
+    const container = document.getElementById('fileEditorContainer');
+    if (!container) return;
+
+    codeMirrorEditor = CodeMirror(container, {
+        lineNumbers: true,
+        lineWrapping: true,
+        theme: 'one-dark',
+        mode: 'text/plain',
+        indentUnit: 4,
+        tabSize: 4,
+        indentWithTabs: false,
+        styleActiveLine: true,
+        matchBrackets: true,
+        autofocus: false,
+        height: '100%'
+    });
+
+    // Set editor to fill container
+    container.querySelector('.CodeMirror').style.height = '100%';
+}
+
+// Listen for initial working directory from main process (when passed via CLI args)
+window.menu.onInitialWorkingDirectory((dir) => {
+    console.log('[Renderer] Received initial working directory:', dir);
+    workingDirectory = dir;
+
+    // Wait for DOM to be ready before hiding welcome screen
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('welcomeScreen').style.display = 'none';
+            document.querySelector('.main-layout').style.display = 'flex';
+            rehydrateState(workingDirectory);
+        });
+    } else {
+        // DOM is already loaded
+        document.getElementById('welcomeScreen').style.display = 'none';
+        document.querySelector('.main-layout').style.display = 'flex';
+        rehydrateState(workingDirectory);
+    }
+});
 let currentArtifactsDir = null; // Will be calculated from working directory
 
 // Workflow orchestration state
@@ -1019,9 +1063,7 @@ function switchView(viewName) {
 
     // If switching to settings view, load project description
     if (viewName === 'settings') {
-        setTimeout(() => {
-            loadProjectDescriptionUI();
-        }, 100);
+        loadProjectDescriptionUI();
     }
 
     // If switching to files view, load the file tree
@@ -1029,6 +1071,64 @@ function switchView(viewName) {
         setTimeout(() => {
             loadFileTree();
         }, 100);
+    }
+}
+
+// Project Description Management
+async function loadProjectDescriptionUI() {
+    if (!workingDirectory) return;
+
+    try {
+        // Try to read from .graphbus/project_description.txt first
+        const descPath = await window.graphbus.runCommand(`echo "${workingDirectory}/.graphbus/project_description.txt"`);
+        const result = await window.graphbus.readFile(descPath.result.stdout.trim());
+
+        if (result.success) {
+            document.getElementById('projectDescriptionInput').value = result.data;
+        } else {
+            // If not found, try to get from graph.json intent
+            const graphResult = await window.graphbus.runCommand(`cat "${workingDirectory}/.graphbus/graph.json"`);
+            if (graphResult.success) {
+                try {
+                    const graph = JSON.parse(graphResult.result.stdout);
+                    if (graph.intent) {
+                        document.getElementById('projectDescriptionInput').value = graph.intent;
+                    }
+                } catch (e) {
+                    console.error('Error parsing graph.json for intent:', e);
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error loading project description:', error);
+    }
+}
+
+async function saveProjectDescription() {
+    if (!workingDirectory) {
+        alert('No project open');
+        return;
+    }
+
+    const description = document.getElementById('projectDescriptionInput').value.trim();
+    if (!description) {
+        alert('Please enter a description');
+        return;
+    }
+
+    try {
+        // Save to .graphbus/project_description.txt
+        const descPath = `${workingDirectory}/.graphbus/project_description.txt`;
+        await window.graphbus.writeFile(descPath, description);
+
+        // Also update graph.json intent if possible
+        // This is a bit complex via CLI, so we'll just save the text file for now
+        // and let the build process pick it up if we implement that later
+
+        alert('Project description saved!');
+    } catch (error) {
+        console.error('Error saving project description:', error);
+        alert('Failed to save description: ' + error.message);
     }
 }
 
@@ -3522,10 +3622,22 @@ async function openFile(filePath) {
             fileContents[filePath] = result.result;
             fileModified[filePath] = false;
 
-            // Update editor
-            const editor = document.getElementById('fileEditor');
-            editor.value = result.result;
-            editor.disabled = false;
+            // Update CodeMirror editor
+            if (codeMirrorEditor) {
+                codeMirrorEditor.setValue(result.result);
+
+                // Detect language mode from file extension
+                const ext = filePath.split('.').pop().toLowerCase();
+                const modeMap = {
+                    'py': 'python',
+                    'js': 'javascript',
+                    'json': 'javascript',
+                    'md': 'markdown',
+                    'txt': 'null'
+                };
+                const mode = modeMap[ext] || 'null';
+                codeMirrorEditor.setOption('mode', mode);
+            }
 
             // Update UI
             document.getElementById('currentFilePath').textContent = filePath.replace(workingDirectory, '');
@@ -3536,15 +3648,6 @@ async function openFile(filePath) {
 
             // Update stats
             updateFileStats();
-
-            // Track changes
-            editor.addEventListener('input', () => {
-                if (!fileModified[currentOpenFile]) {
-                    fileModified[currentOpenFile] = true;
-                    document.getElementById('fileModified').style.display = 'inline';
-                }
-                updateFileStats();
-            });
         } else {
             addMessage(`❌ Failed to open file: ${result.error}`, 'error');
         }
@@ -3558,9 +3661,10 @@ async function openFile(filePath) {
  * Update file statistics
  */
 function updateFileStats() {
-    const editor = document.getElementById('fileEditor');
-    const content = editor.value;
-    const lines = content.split('\n').length;
+    if (!codeMirrorEditor) return;
+
+    const content = codeMirrorEditor.getValue();
+    const lines = codeMirrorEditor.lineCount();
     const chars = content.length;
 
     document.getElementById('lineCount').textContent = `Lines: ${lines}`;
@@ -3571,10 +3675,10 @@ function updateFileStats() {
  * Save current file
  */
 async function saveCurrentFile() {
-    if (!currentOpenFile) return;
+    if (!currentOpenFile || !codeMirrorEditor) return;
 
     try {
-        const content = document.getElementById('fileEditor').value;
+        const content = codeMirrorEditor.getValue();
         const result = await window.graphbus.writeFile(currentOpenFile, content);
 
         if (result.success) {
@@ -3603,8 +3707,13 @@ function closeCurrentFile() {
     }
 
     currentOpenFile = null;
-    document.getElementById('fileEditor').value = '';
-    document.getElementById('fileEditor').disabled = true;
+
+    // Clear CodeMirror editor
+    if (codeMirrorEditor) {
+        codeMirrorEditor.setValue('');
+        codeMirrorEditor.setOption('mode', 'null');
+    }
+
     document.getElementById('currentFilePath').textContent = 'Select a file to view';
     document.getElementById('fileModified').style.display = 'none';
     document.getElementById('saveFileBtn').style.display = 'none';
@@ -3657,6 +3766,21 @@ function cycleView(direction = 1) {
 
 // Keyboard shortcuts
 document.addEventListener('DOMContentLoaded', async () => {
+    // Initialize CodeMirror editor
+    initializeCodeMirror();
+
+    // Add file editor change listener to CodeMirror
+    if (codeMirrorEditor) {
+        codeMirrorEditor.on('change', () => {
+            if (!currentOpenFile) return;
+            if (!fileModified[currentOpenFile]) {
+                fileModified[currentOpenFile] = true;
+                document.getElementById('fileModified').style.display = 'inline';
+            }
+            updateFileStats();
+        });
+    }
+
     // Initialize workflow DAG
     initializeWorkflowDAG();
 
