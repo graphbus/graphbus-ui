@@ -105,9 +105,16 @@ function initializeTerminal() {
     let currentLine = '';
     let inputMode = 'waiting'; // waiting, processing, idle
 
-    // Write welcome message
-    xterm.writeln('\r\n📡 GraphBus Terminal - Interactive Agent Orchestration');
-    xterm.writeln('Type commands (ls, build, etc.) or ask questions naturally\r\n');
+    // Write welcome message with Claude status
+    xterm.writeln('\r\n╔════════════════════════════════════════════════════════════╗');
+    xterm.writeln('║  📡 GraphBus Terminal - Claude AI Orchestration             ║');
+    xterm.writeln('║  Powered by Claude for intelligent agent management         ║');
+    xterm.writeln('╚════════════════════════════════════════════════════════════╝\r');
+
+    xterm.writeln('Available modes:');
+    xterm.writeln('  • Commands: ls, build, negotiate, run, validate');
+    xterm.writeln('  • Questions: Natural language queries sent to Claude');
+    xterm.writeln('  • Type "help" for more information\r');
     xterm.write('$ ');
 
     // Handle keyboard input
@@ -231,14 +238,70 @@ async function executeTerminalCommand(command) {
 async function sendPromptToClaude(prompt) {
     if (!xterm) return;
 
-    xterm.writeln(`Sending to Claude: "${prompt}"\r`);
+    xterm.writeln(`\r`);
+
+    // Show that we're sending to Claude
+    xterm.writeln(`📡 Sending to Claude AI...\r`);
 
     try {
-        // Send the prompt through the existing sendCommand mechanism
-        await sendCommand(prompt);
+        // Check if Claude is initialized
+        if (!workflowState.claudeInitialized) {
+            xterm.writeln(`⚠️  Claude not yet initialized. Using fallback interpretation.\r`);
+            const handled = await interpretCommand(prompt);
+            if (!handled) {
+                xterm.writeln(`❌ Could not interpret command. Try "help" for available options.\r`);
+            }
+            xterm.write('$ ');
+            return;
+        }
+
+        // Send to Claude with full context
+        const response = await window.graphbus.claudeChat(prompt, {
+            hasBuilt: workflowState.hasBuilt,
+            isRunning: workflowState.isRunning,
+            phase: workflowState.phase,
+            agentsLoaded: workflowState.agentsLoaded,
+            workingDirectory: workingDirectory
+        });
+
+        if (response.success) {
+            const { message, action, params, plan } = response.result;
+
+            // Display Claude's response
+            if (message) {
+                xterm.writeln(`\r🤖 Claude:\r`);
+                const lines = message.split('\n');
+                lines.forEach(line => {
+                    if (line.trim()) {
+                        xterm.writeln(`  ${line}\r`);
+                    }
+                });
+            }
+
+            // If Claude suggested an action, execute it
+            if (action) {
+                xterm.writeln(`\r⚙️  Executing: ${action}\r`);
+                if (params) {
+                    xterm.writeln(`   Parameters: ${JSON.stringify(params)}\r`);
+                }
+                // Action execution would happen here through workflow
+            }
+
+            // Check for structured plan
+            const structuredPlan = plan || parsePlanFromClaudeResponse(response.result);
+            if (structuredPlan) {
+                xterm.writeln(`\r📋 Plan Created: ${structuredPlan.name}\r`);
+                if (structuredPlan.agents && structuredPlan.agents.length > 0) {
+                    xterm.writeln(`   Agents: ${structuredPlan.agents.map(a => a.name).join(', ')}\r`);
+                }
+            }
+        } else {
+            xterm.writeln(`❌ Error: ${response.error || 'Unknown error'}\r`);
+        }
+
         xterm.write('$ ');
     } catch (error) {
-        xterm.writeln(`Error: ${error.message}\r`);
+        xterm.writeln(`❌ Error communicating with Claude: ${error.message}\r`);
         xterm.write('$ ');
     }
 }
