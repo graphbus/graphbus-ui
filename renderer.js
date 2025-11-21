@@ -3,6 +3,8 @@
 let statusInterval;
 let workingDirectory = null; // Will be set from main process
 let codeMirrorEditor = null; // CodeMirror editor instance
+let xterm = null; // xterm.js terminal instance
+let terminalInitialized = false; // Track if terminal is initialized
 
 // Initialize CodeMirror editor (using CodeMirror 5)
 function initializeCodeMirror() {
@@ -25,6 +27,53 @@ function initializeCodeMirror() {
 
     // Set editor to fill container
     container.querySelector('.CodeMirror').style.height = '100%';
+}
+
+// Initialize xterm.js terminal
+function initializeTerminal() {
+    const terminalContainer = document.getElementById('terminal');
+    if (!terminalContainer || !window.Terminal) return;
+
+    xterm = new window.Terminal({
+        cols: 120,
+        rows: 30,
+        theme: {
+            background: '#0a0a0a',
+            foreground: '#e5e7eb',
+            cursor: '#e5e7eb',
+            cursorAccent: '#0a0a0a',
+            black: '#1a1a1a',
+            red: '#ff5555',
+            green: '#55ff55',
+            yellow: '#ffff55',
+            blue: '#5555ff',
+            magenta: '#ff55ff',
+            cyan: '#55ffff',
+            white: '#e5e7eb',
+            brightBlack: '#555555',
+            brightRed: '#ff7777',
+            brightGreen: '#77ff77',
+            brightYellow: '#ffff77',
+            brightBlue: '#7777ff',
+            brightMagenta: '#ff77ff',
+            brightCyan: '#77ffff',
+            brightWhite: '#ffffff'
+        },
+        fontFamily: "'Monaco', 'Menlo', 'Ubuntu Mono', 'Courier New', monospace",
+        fontSize: 13,
+        lineHeight: 1.2,
+        cursorBlink: true
+    });
+
+    xterm.open(terminalContainer);
+    terminalInitialized = true;
+
+    // Write welcome message
+    xterm.writeln('\r\n📡 GraphBus Terminal - Interactive Agent Orchestration');
+    xterm.writeln('Type "help" for available commands or ask me anything!\r\n');
+    xterm.write('> ');
+
+    return xterm;
 }
 
 // Listen for initial working directory from main process (when passed via CLI args)
@@ -3780,6 +3829,9 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateFileStats();
         });
     }
+
+    // Initialize xterm.js terminal
+    initializeTerminal();
 
     // Initialize workflow DAG
     initializeWorkflowDAG();
