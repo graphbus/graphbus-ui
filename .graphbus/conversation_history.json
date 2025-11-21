@@ -1,5 +1,31 @@
 {
-  "timestamp": "2025-11-16T20:13:39.795Z",
+  "timestamp": "2025-11-19T07:04:44.195Z",
   "workingDirectory": "/Users/ubuntu/workbench/graphbus-ui",
-  "messages": []
+  "messages": [
+    {
+      "text": "✓ Conversation history restored",
+      "type": "system",
+      "timestamp": 1763535875899
+    },
+    {
+      "text": "Welcome to GraphBus! 👋\n\nGraphBus is a framework for building intelligent agent systems that work together automatically. Think of it like an orchestra conductor - it figures out which agents depend on each other, then runs them in the right order.\n\nHere's how it works:\n• **Agents** - Python classes that do specific tasks (like processing data, calling APIs, etc.)\n• **Dependencies** - Agents can depend on other agents, and GraphBus figures out the order\n• **DAG (Dependency Graph)** - A map showing how your agents connect and which run first\n• **Pub/Sub** - Agents can talk to each other through message topics\n\nYou don't have any agents built yet, so here are some ways to get started:\n\n1. **Create a new project** - I can help you build agents for a specific use case (like a chat app, data pipeline, API orchestration, etc.)\n2. **Work with existing code** - If you have Python files with agents, I can analyze and build them\n3. **Learn more** - Ask me about any GraphBus concept and I'll explain it\n\nWhat would you like to do?",
+      "type": "assistant",
+      "timestamp": 1763535875900
+    },
+    {
+      "text": "✓ Conversation history restored",
+      "type": "system",
+      "timestamp": 1763535875900
+    },
+    {
+      "text": "✓ Conversation history restored",
+      "type": "system",
+      "timestamp": 1763535875900
+    },
+    {
+      "text": "Welcome to GraphBus! 👋\n\nGraphBus is a framework for building intelligent agent systems that work together autonomously. Think of it like building a team of specialized AI agents that can collaborate, communicate through messages, and execute tasks in the right order based on their dependencies.\n\n**Here's what makes GraphBus special:**\n- **Smart Orchestration** - Agents automatically figure out their execution order\n- **Collaborative Intelligence** - Agents can negotiate and improve each other's code\n- **Message-Driven** - Agents communicate through pub/sub topics for event-driven workflows\n\n**What would you like to do?**\n- Create a new agent system (I'll help you design and build it)\n- Learn about GraphBus concepts (DAGs, pub/sub, negotiation)\n- See example templates and projects\n\nJust tell me what you're trying to build, and I'll guide you through the process step by step!",
+      "type": "assistant",
+      "timestamp": 1763535884194
+    }
+  ]
 }
