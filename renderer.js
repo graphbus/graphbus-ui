@@ -1291,13 +1291,45 @@ What would you like to do?`, 'assistant');
     }
 }
 
+// Extract intent from user input (e.g., "build to improve error handling")
+function extractIntentFromInput(input) {
+    // Look for patterns like:
+    // - "build to improve..."
+    // - "negotiate for..."
+    // - "build with intent..."
+    const intentPatterns = [
+        /(?:build|negotiate)\s+(?:to|for|with intent\s+to)\s+(.+?)(?:\s+|$)/i,
+        /intent\s*:?\s*(.+?)(?:\s+|$)/i,
+        /(?:improve|enhance|optimize|focus on)\s+(.+?)(?:\s+|$)/i
+    ];
+
+    for (const pattern of intentPatterns) {
+        const match = input.match(pattern);
+        if (match && match[1]) {
+            return match[1].trim();
+        }
+    }
+
+    return null;
+}
+
 // Smart command interpreter - understands intent
 async function interpretCommand(command) {
     const lower = command.toLowerCase();
+    const extractedIntent = extractIntentFromInput(command);
 
     // Affirmative responses
     if (lower.match(/^(yes|yeah|sure|ok|okay|yep|go|do it|please|start|build)/)) {
         if (workflowState.phase === 'awaiting_build_confirmation') {
+            if (extractedIntent) {
+                // Augment project intent with conversational intent
+                const augmentedIntent = projectDescription
+                    ? `${projectDescription}; also ${extractedIntent}`
+                    : extractedIntent;
+                projectDescription = augmentedIntent;
+                await saveProjectMetadata(augmentedIntent);
+                addMessage(`💡 Augmented intent: ${augmentedIntent}`, 'system');
+            }
             await autoBuildAgents();
             return true;
         } else if (workflowState.phase === 'awaiting_runtime_confirmation') {
@@ -1337,7 +1369,33 @@ async function interpretCommand(command) {
 
     // Build
     if (lower.includes('build')) {
+        if (extractedIntent) {
+            // Augment project intent with conversational intent
+            const augmentedIntent = projectDescription
+                ? `${projectDescription}; also ${extractedIntent}`
+                : extractedIntent;
+            projectDescription = augmentedIntent;
+            await saveProjectMetadata(augmentedIntent);
+            addMessage(`💡 Augmented intent: ${augmentedIntent}`, 'system');
+        }
         await autoBuildAgents();
+        return true;
+    }
+
+    // Negotiate
+    if (lower.includes('negotiate')) {
+        if (extractedIntent) {
+            // Augment project intent with conversational intent
+            const augmentedIntent = projectDescription
+                ? `${projectDescription}; also ${extractedIntent}`
+                : extractedIntent;
+            projectDescription = augmentedIntent;
+            await saveProjectMetadata(augmentedIntent);
+            addMessage(`💡 Augmented intent: ${augmentedIntent}`, 'system');
+        }
+        // Trigger negotiation
+        const negotiateCmd = `graphbus negotiate .graphbus --intent "${projectDescription || 'improve system'}" --rounds 5 -v`;
+        await runShellCommand(negotiateCmd);
         return true;
     }
 
