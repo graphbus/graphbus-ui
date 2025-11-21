@@ -86,6 +86,35 @@ function getHistoryCommand(direction) {
     return historyIndex >= 0 ? commandHistory[commandHistory.length - 1 - historyIndex] : '';
 }
 
+// Fetch system credentials (user, hostname, IP)
+async function fetchSystemCredentials() {
+    try {
+        // Get username using whoami
+        const userResult = await window.graphbus.runCommand('whoami');
+        if (userResult.success) {
+            currentUser = (userResult.result.stdout || 'user').trim();
+        }
+
+        // Get hostname
+        const hostResult = await window.graphbus.runCommand('hostname');
+        if (hostResult.success) {
+            currentHostname = (hostResult.result.stdout || 'localhost').trim();
+        }
+
+        // Get IP address
+        const ipResult = await window.graphbus.runCommand("ifconfig | grep 'inet ' | grep -v 127.0.0.1 | head -1 | awk '{print $2}'");
+        if (ipResult.success) {
+            const ip = (ipResult.result.stdout || '127.0.0.1').trim();
+            currentIpAddress = ip || '127.0.0.1';
+        }
+
+        // Update display with new credentials
+        updateTerminalInfo();
+    } catch (error) {
+        console.error('Error fetching system credentials:', error);
+    }
+}
+
 // Fetch system resource information
 async function fetchSystemResources() {
     try {
@@ -362,6 +391,9 @@ function initializeTerminal() {
 
     // Load command history
     loadCommandHistory();
+
+    // Fetch system credentials (user, hostname, IP)
+    fetchSystemCredentials();
 
     // Update terminal info display
     updateTerminalInfo();
