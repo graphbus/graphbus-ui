@@ -765,7 +765,29 @@ button:hover {
     background: #0a0a0a;
 }
 
+/* xterm Terminal Styling */
+#terminal {
+    flex: 1 !important;
+    overflow: hidden !important;
+    background: #0a0a0a !important;
+    padding: 0 !important;
+}
+
+#terminal .xterm {
+    height: 100% !important;
+    width: 100% !important;
+}
+
+#terminal .xterm-viewport {
+    height: 100% !important;
+}
+
+#terminal .xterm-screen {
+    height: 100% !important;
+}
+
 .conversation-input-section {
+    display: none; /* Hidden in favor of terminal input */
     background: #121212;
     border-top: 1px solid #1a1a1a;
     padding: 20px 24px;

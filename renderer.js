@@ -29,6 +29,38 @@ function initializeCodeMirror() {
     container.querySelector('.CodeMirror').style.height = '100%';
 }
 
+// Detect if input is a command or a prompt
+function detectInputType(input) {
+    const trimmed = input.trim().toLowerCase();
+
+    // Command patterns
+    const commandPatterns = [
+        /^(ls|cd|pwd|cat|echo|mkdir|rm|cp|mv|chmod|sudo|grep|find|git|npm|node|python|graphbus|help|clear|exit|build|negotiate|run|validate)/,
+        /^[a-z]+\s+/,  // command with arguments
+        /^-[a-zA-Z]/,   // flag-like (starts with -)
+        /^--[a-z]/,     // long flag
+        /\/[a-z]/       // path-like
+    ];
+
+    // Question/prompt patterns
+    const questionPatterns = [
+        /\?$|^\?/,      // ends with ? or starts with ?
+        /^(how|what|why|when|where|who|do|can|should|will|is|are|help\s+me|tell\s+me|show\s+me|explain|describe|list)/i,
+        /please|help|need|want|make|create|generate|build|implement/i
+    ];
+
+    // Check patterns
+    const isCommand = commandPatterns.some(p => p.test(trimmed));
+    const isQuestion = questionPatterns.some(p => p.test(trimmed));
+
+    if (isCommand && !isQuestion) return 'command';
+    if (isQuestion && !isCommand) return 'prompt';
+    if (!trimmed) return null;
+
+    // Default: if ambiguous, guess based on content
+    return trimmed.includes(' ') && !trimmed.includes('?') ? 'command' : 'prompt';
+}
+
 // Initialize xterm.js terminal
 function initializeTerminal() {
     const terminalContainer = document.getElementById('terminal');
@@ -62,18 +94,153 @@ function initializeTerminal() {
         fontFamily: "'Monaco', 'Menlo', 'Ubuntu Mono', 'Courier New', monospace",
         fontSize: 13,
         lineHeight: 1.2,
-        cursorBlink: true
+        cursorBlink: true,
+        scrollback: 1000
     });
 
     xterm.open(terminalContainer);
     terminalInitialized = true;
 
+    // Terminal state
+    let currentLine = '';
+    let inputMode = 'waiting'; // waiting, processing, idle
+
     // Write welcome message
     xterm.writeln('\r\n📡 GraphBus Terminal - Interactive Agent Orchestration');
-    xterm.writeln('Type "help" for available commands or ask me anything!\r\n');
-    xterm.write('> ');
+    xterm.writeln('Type commands (ls, build, etc.) or ask questions naturally\r\n');
+    xterm.write('$ ');
+
+    // Handle keyboard input
+    xterm.onData(data => {
+        const char = data.charCodeAt(0);
+
+        // Handle backspace
+        if (char === 127 || char === 8) {
+            if (currentLine.length > 0) {
+                currentLine = currentLine.slice(0, -1);
+                xterm.write('\b \b');
+            }
+            return;
+        }
+
+        // Handle Enter
+        if (char === 13) {
+            xterm.writeln('\r');
+
+            if (currentLine.trim()) {
+                const inputType = detectInputType(currentLine);
+
+                if (inputType) {
+                    xterm.writeln(`[Detected as ${inputType === 'command' ? '⚙️ COMMAND' : '❓ PROMPT'}]\r`);
+
+                    if (inputType === 'command') {
+                        executeTerminalCommand(currentLine);
+                    } else {
+                        sendPromptToClaude(currentLine);
+                    }
+                } else {
+                    xterm.write('$ ');
+                }
+            } else {
+                xterm.write('$ ');
+            }
+
+            currentLine = '';
+            return;
+        }
+
+        // Handle Ctrl+C
+        if (char === 3) {
+            xterm.writeln('\r^C');
+            currentLine = '';
+            xterm.write('$ ');
+            return;
+        }
+
+        // Handle Ctrl+L (clear)
+        if (char === 12) {
+            xterm.clear();
+            currentLine = '';
+            xterm.write('$ ');
+            return;
+        }
+
+        // Regular character input
+        if (char >= 32 && char <= 126) {
+            currentLine += data;
+            xterm.write(data);
+        }
+    });
 
     return xterm;
+}
+
+// Execute terminal command
+async function executeTerminalCommand(command) {
+    if (!xterm) return;
+
+    const trimmed = command.trim();
+
+    // Handle built-in commands
+    if (trimmed === 'help') {
+        xterm.writeln('Available commands:\r');
+        xterm.writeln('  build       - Build the agent system\r');
+        xterm.writeln('  negotiate   - Run agent negotiation\r');
+        xterm.writeln('  run         - Start the runtime\r');
+        xterm.writeln('  validate    - Validate the agent setup\r');
+        xterm.writeln('  ls          - List project files\r');
+        xterm.writeln('  clear       - Clear terminal\r');
+        xterm.writeln('  help        - Show this help\r');
+        xterm.writeln('  exit        - Exit terminal\r');
+        xterm.write('\r$ ');
+        return;
+    }
+
+    if (trimmed === 'clear') {
+        xterm.clear();
+        xterm.write('$ ');
+        return;
+    }
+
+    if (trimmed === 'exit') {
+        xterm.writeln('Goodbye!\r');
+        return;
+    }
+
+    // Execute system command via GraphBus
+    xterm.writeln(`Executing: ${trimmed}\r`);
+
+    try {
+        const result = await window.graphbus.executeCommand(trimmed);
+        if (result.success) {
+            const output = result.result.split('\n');
+            output.forEach(line => {
+                if (line) xterm.writeln(line + '\r');
+            });
+        } else {
+            xterm.writeln(`Error: ${result.error}\r`);
+        }
+    } catch (error) {
+        xterm.writeln(`Error: ${error.message}\r`);
+    }
+
+    xterm.write('$ ');
+}
+
+// Send prompt to Claude
+async function sendPromptToClaude(prompt) {
+    if (!xterm) return;
+
+    xterm.writeln(`Sending to Claude: "${prompt}"\r`);
+
+    try {
+        // Send the prompt through the existing sendCommand mechanism
+        await sendCommand(prompt);
+        xterm.write('$ ');
+    } catch (error) {
+        xterm.writeln(`Error: ${error.message}\r`);
+        xterm.write('$ ');
+    }
 }
 
 // Listen for initial working directory from main process (when passed via CLI args)
