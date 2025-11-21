@@ -497,10 +497,14 @@ button:hover {
 
 /* Main Layout with Tabs */
 .main-layout {
-    display: flex;
+    display: none;
     flex-direction: column;
     height: 100vh;
     background: #1a1a1a;
+}
+
+.main-layout.visible {
+    display: flex !important;
 }
 
 /* Tab Bar */
@@ -1528,6 +1532,10 @@ button:hover {
     align-items: center;
     justify-content: center;
     z-index: 10000;
+}
+
+.welcome-screen.hidden {
+    display: none !important;
 }
 
 .welcome-content {

@@ -752,17 +752,28 @@ window.menu.onInitialWorkingDirectory((dir) => {
     console.log('[Renderer] Received initial working directory:', dir);
     workingDirectory = dir;
 
+    // Function to show main layout and hide welcome screen
+    function showMainLayout() {
+        const welcomeScreen = document.getElementById('welcomeScreen');
+        const mainLayout = document.querySelector('.main-layout');
+
+        if (welcomeScreen) {
+            welcomeScreen.classList.add('hidden');
+        }
+        if (mainLayout) {
+            mainLayout.classList.add('visible');
+        }
+    }
+
     // Wait for DOM to be ready before hiding welcome screen
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', async () => {
-            document.getElementById('welcomeScreen').style.display = 'none';
-            document.querySelector('.main-layout').style.display = 'flex';
+            showMainLayout();
             await rehydrateState(workingDirectory);
         });
     } else {
         // DOM is already loaded
-        document.getElementById('welcomeScreen').style.display = 'none';
-        document.querySelector('.main-layout').style.display = 'flex';
+        showMainLayout();
         rehydrateState(workingDirectory);
     }
 });
