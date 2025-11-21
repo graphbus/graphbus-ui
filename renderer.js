@@ -86,8 +86,8 @@ const DEFAULT_WORKFLOW_STAGES = {
         description: 'Building agent dependency graph',
         autoProgress: true,
         nextStage: 'negotiate',
-        action: () => ({
-            prompt: '🏗️ Building agents and analyzing dependencies...',
+        action: (state) => ({
+            prompt: `🏗️ Building agents and analyzing dependencies...\n💡 Intent: "${state.intent || 'improve system'}"`,
             command: 'graphbus build agents/ --enable-agents -v',
             autoRun: true
         })
