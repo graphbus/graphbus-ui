@@ -930,7 +930,7 @@ button:hover {
 .terminal-info-value {
     color: #aaa;
     font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Courier New', monospace;
-    max-width: 200px;
+    max-width: 400px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
