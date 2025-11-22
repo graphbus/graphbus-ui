@@ -384,24 +384,40 @@ function writeTerminal(text, type = 'output') {
     const line = document.createElement('div');
     line.className = 'terminal-line';
 
-    // Format based on type
-    if (type === 'header') {
-        line.style.color = '#667eea';
-        line.style.fontWeight = 'bold';
-        line.style.marginTop = '6px';
-    } else if (type === 'error') {
-        line.style.color = '#ff5555';
-    } else if (type === 'warning') {
-        line.style.color = '#ffff55';
-    } else if (type === 'success') {
-        line.style.color = '#55ff55';
-    } else if (type === 'command') {
-        line.style.color = '#667eea';
-        line.style.marginTop = '4px';
-        line.style.fontWeight = '600';
+    // Map type to icon and styling
+    const typeConfig = {
+        'header': { icon: '📋', color: '#667eea', bold: true },
+        'error': { icon: '❌', color: '#ff5555', bold: false },
+        'warning': { icon: '⚠️', color: '#ffaa55', bold: false },
+        'success': { icon: '✓', color: '#55ff55', bold: false },
+        'command': { icon: '$', color: '#667eea', bold: true },
+        'info': { icon: 'ℹ️', color: '#55aaff', bold: false },
+        'output': { icon: null, color: '#aaa', bold: false }
+    };
+
+    const config = typeConfig[type] || typeConfig['output'];
+
+    if (config.icon) {
+        // Create styled message with icon
+        line.className = `terminal-msg ${type}`;
+        const icon = document.createElement('span');
+        icon.className = 'terminal-msg-icon';
+        icon.textContent = config.icon;
+
+        const content = document.createElement('span');
+        content.className = 'terminal-msg-content';
+        content.textContent = text;
+
+        line.appendChild(icon);
+        line.appendChild(content);
+    } else {
+        // Plain output line
+        line.className = 'terminal-output-item content';
+        line.style.color = config.color;
+        if (config.bold) line.style.fontWeight = '600';
+        line.textContent = text;
     }
 
-    line.textContent = text;
     outputDiv.appendChild(line);
 
     // Auto-scroll to bottom
@@ -415,10 +431,11 @@ function writeTerminalSeparator() {
 
     const line = document.createElement('div');
     line.className = 'terminal-line';
-    line.style.marginTop = '8px';
-    line.style.marginBottom = '8px';
-    line.style.color = '#333';
+    line.style.marginTop = '10px';
+    line.style.marginBottom = '10px';
+    line.style.color = 'rgba(102, 126, 234, 0.2)';
     line.style.fontSize = '11px';
+    line.style.textAlign = 'center';
     line.textContent = '─────────────────────────────────────────────────────';
     outputDiv.appendChild(line);
 
