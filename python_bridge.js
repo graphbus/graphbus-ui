@@ -1,6 +1,7 @@
 // python_bridge.js - Bridge between Electron and Python graphbus-core
 const { PythonShell } = require('python-shell');
 const path = require('path');
+const fs = require('fs');
 
 class PythonBridge {
     constructor() {
@@ -12,8 +13,8 @@ class PythonBridge {
             'python3'                      // Use PATH
         ];
 
-        // Use first available path (in this case, use Homebrew for macOS)
-        this.pythonPath = possiblePaths[0];
+        // Use the first path that actually exists on disk; fall back to PATH-based 'python3'
+        this.pythonPath = possiblePaths.find(p => p === 'python3' || fs.existsSync(p)) || 'python3';
         this.graphbusPath = path.join(__dirname, '..', 'graphbus');
         this.runtimeActive = false;
         this.currentExecutor = null;
