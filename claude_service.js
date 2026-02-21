@@ -329,8 +329,16 @@ NEVER leave compound requests half-finished!`;
 
             let assistantMessage = response.content[0].text;
 
-            // Strip markdown code fences if present (```json ... ``` or ``` ... ```)
-            assistantMessage = assistantMessage.replace(/```json?\s*/g, '').replace(/```\s*$/g, '').trim();
+            // Strip the outermost markdown code fence if Claude wrapped the JSON response.
+            // Use anchored start/end patterns — a global replace would corrupt embedded
+            // code examples inside the message field (e.g., a Python snippet in a coaching tip).
+            assistantMessage = assistantMessage.trim();
+            if (assistantMessage.startsWith('```')) {
+                assistantMessage = assistantMessage
+                    .replace(/^```(?:json)?\n?/, '')  // strip opening fence + optional newline
+                    .replace(/\n?```$/, '')            // strip closing fence + optional newline
+                    .trim();
+            }
 
             // Add assistant response to history
             this.conversationHistory.push({
