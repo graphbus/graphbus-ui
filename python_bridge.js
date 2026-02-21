@@ -131,10 +131,14 @@ else:
 
         const argsJson = JSON.stringify(args);
 
+        // Use triple-quoted Python strings for JSON data to prevent syntax errors
+        // when arg values contain single quotes (e.g. {name: "O'Brien"}).
+        // JSON.stringify always escapes double-quotes as \", so '"""' never appears
+        // raw in the JSON output — triple-quoted strings are safe here.
         const code = `
 import json
 if '_executor' in globals():
-    result = _executor.call_method("${agent}", "${method}", **json.loads('${argsJson}'))
+    result = _executor.call_method("${agent}", "${method}", **json.loads("""${argsJson}"""))
     print(f"SUCCESS:{result}")
 else:
     print("ERROR:Runtime not initialized")
@@ -155,10 +159,11 @@ else:
 
         const payloadJson = JSON.stringify(payload);
 
+        // Triple-quoted strings prevent syntax errors from single quotes in payload values
         const code = `
 import json
 if '_executor' in globals():
-    _executor.publish("${topic}", json.loads('${payloadJson}'), source="electron_ui")
+    _executor.publish("${topic}", json.loads("""${payloadJson}"""), source="electron_ui")
     print("SUCCESS:Event published to ${topic}")
 else:
     print("ERROR:Runtime not initialized")
