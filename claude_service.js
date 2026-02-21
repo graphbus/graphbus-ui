@@ -370,17 +370,25 @@ NEVER leave compound requests half-finished!`;
     }
 
     updateWorkingDirectory(newDirectory) {
-        // Update system prompt with new directory
-        this.systemPrompt = this.systemPrompt.replace(
-            /Working Directory: .+/,
-            `Working Directory: ${newDirectory}`
-        ).replace(
-            /Agents Location: .+/,
-            `Agents Location: ${newDirectory}/agents`
-        ).replace(
-            /Build Output: .+/,
-            `Build Output: ${newDirectory}/.graphbus`
-        );
+        // Update system prompt with new directory.
+        //
+        // IMPORTANT: pass a *function* as the replacement, not a string.
+        // When the replacement is a string, String.prototype.replace() interprets
+        // several $-prefixed patterns as special sequences:
+        //   $&  → inserts the matched substring
+        //   $'  → inserts the portion after the match
+        //   $`  → inserts the portion before the match
+        //   $1  → inserts the first capture group
+        //   $$  → inserts a literal $
+        //
+        // If newDirectory contains a bare $ (e.g. "/home/$USER/proj", or any
+        // Windows path with an env-var reference), those patterns corrupt the
+        // system prompt silently. A function return value is always treated as
+        // a literal string, so no $ expansion occurs.
+        this.systemPrompt = this.systemPrompt
+            .replace(/Working Directory: .+/, () => `Working Directory: ${newDirectory}`)
+            .replace(/Agents Location: .+/,   () => `Agents Location: ${newDirectory}/agents`)
+            .replace(/Build Output: .+/,      () => `Build Output: ${newDirectory}/.graphbus`);
     }
 
     addSystemMessage(message) {
