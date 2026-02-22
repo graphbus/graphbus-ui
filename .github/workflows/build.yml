@@ -15,7 +15,7 @@ jobs:
           - os: macos-14
             platform: mac-arm64
             args: "--mac dmg zip --arm64"
-          - os: macos-13
+          - os: macos-14
             platform: mac-x64
             args: "--mac dmg zip --x64"
           - os: ubuntu-latest
