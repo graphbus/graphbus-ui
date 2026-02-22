@@ -13,8 +13,11 @@ jobs:
       matrix:
         include:
           - os: macos-14
-            platform: mac
-            args: "--mac dmg zip"
+            platform: mac-arm64
+            args: "--mac dmg zip --arm64"
+          - os: macos-13
+            platform: mac-x64
+            args: "--mac dmg zip --x64"
           - os: ubuntu-latest
             platform: linux
             args: "--linux AppImage tar.gz"
@@ -67,7 +70,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            graphbus-ui-mac/*
+            graphbus-ui-mac-arm64/*
+            graphbus-ui-mac-x64/*
             graphbus-ui-linux/*
             graphbus-ui-win/*
           generate_release_notes: true
