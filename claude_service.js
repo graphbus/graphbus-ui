@@ -313,7 +313,12 @@ NEVER leave compound requests half-finished!`;
         // Add system state context to the message
         const contextMessage = `[System State: Built=${systemState.hasBuilt}, Running=${systemState.isRunning}, Phase=${systemState.phase}]\n\nUser: ${userMessage}`;
 
-        // Add user message to history
+        // Add user message to history BEFORE the call so it's part of the
+        // conversation, but track the index so we can roll it back on failure.
+        // If the API call throws (rate limit, context too long, network error),
+        // leaving an unanswered user message in history causes every subsequent
+        // call to fail with Anthropic's alternating-roles validation error,
+        // turning a transient error into a permanently broken session.
         this.conversationHistory.push({
             role: 'user',
             content: contextMessage
@@ -364,6 +369,9 @@ NEVER leave compound requests half-finished!`;
             }
 
         } catch (error) {
+            // Roll back the user message — leaving it without an assistant reply
+            // corrupts the alternating-role invariant and breaks all future calls.
+            this.conversationHistory.pop();
             console.error('Claude API error:', error);
             throw new Error(`Claude API error: ${error.message}`);
         }
