@@ -9,11 +9,15 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
-          - os: macos-latest
-            platform: mac
-            args: "--mac dmg zip"
+          - os: macos-13
+            platform: mac-intel
+            args: "--mac dmg zip --x64"
+          - os: macos-14
+            platform: mac-arm
+            args: "--mac dmg zip --arm64"
           - os: ubuntu-latest
             platform: linux
             args: "--linux AppImage deb tar.gz"
@@ -31,10 +35,10 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build Electron app
-        run: npx electron-builder ${{ matrix.args }}
+        run: npx electron-builder ${{ matrix.args }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -54,16 +58,22 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
 
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
 
+      - name: List artifacts
+        run: find . -type f | head -30
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            graphbus-ui-mac/*
+            graphbus-ui-mac-intel/*
+            graphbus-ui-mac-arm/*
             graphbus-ui-linux/*
             graphbus-ui-win/*
           generate_release_notes: true
