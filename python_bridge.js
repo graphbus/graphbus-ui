@@ -24,12 +24,17 @@ class PythonBridge {
         console.log('GraphBus path:', this.graphbusPath);
     }
 
-    async execute(code) {
+    async execute(code, extraEnv = {}) {
         return new Promise((resolve, reject) => {
             const options = {
                 mode: 'text',
                 pythonPath: this.pythonPath,
-                pythonOptions: ['-u']
+                pythonOptions: ['-u'],
+                // Merge caller-supplied env vars (e.g. API keys) into the
+                // child process environment without embedding them in the
+                // Python code string, where quotes/backslashes would break
+                // the generated syntax.
+                env: { ...process.env, ...extraEnv },
             };
 
             PythonShell.runString(code, options, (err, results) => {
@@ -42,8 +47,17 @@ class PythonBridge {
     async buildAgents(config) {
         const { agentsDir, outputDir, enableAgents, llmModel, apiKey } = config;
 
+        // Pass the API key via the child process environment, not inline in the
+        // Python code string.  Embedding it directly risks SyntaxError if the
+        // key contains a backslash or double-quote, and unnecessarily exposes
+        // credentials in generated code.  Python reads it from os.environ instead.
+        const extraEnv = (enableAgents && llmModel && apiKey)
+            ? { GRAPHBUS_LLM_API_KEY: apiKey }
+            : {};
+
         const code = `
 import sys
+import os
 sys.path.insert(0, '${this.graphbusPath}')
 
 from graphbus_core.build.builder import build_project
@@ -55,17 +69,17 @@ config = BuildConfig(
     output_dir="${outputDir}"
 )
 
-${enableAgents && llmModel && apiKey ? `
-llm_config = LLMConfig(model="${llmModel}", api_key="${apiKey}")
-config.llm_config = llm_config
-` : ''}
+_api_key = os.environ.get('GRAPHBUS_LLM_API_KEY', '')
+if _api_key and "${llmModel || ''}":
+    llm_config = LLMConfig(model="${llmModel || ''}", api_key=_api_key)
+    config.llm_config = llm_config
 
 artifacts = build_project(config)
 print(f"SUCCESS:Built {len(artifacts.agents)} agents with {len(artifacts.topics)} topics")
 `;
 
         try {
-            const result = await this.execute(code);
+            const result = await this.execute(code, extraEnv);
             return this.parseOutput(result);
         } catch (error) {
             throw new Error(`Build failed: ${error.message}`);
@@ -86,7 +100,7 @@ config = RuntimeConfig(artifacts_dir="${artifactsDir}", enable_message_bus=True)
 executor = RuntimeExecutor(config)
 executor.start()
 
-print(f"SUCCESS:Runtime started with {executor.nodes.__len__()} nodes")
+print(f"SUCCESS:Runtime started with {len(executor.nodes)} nodes")
 
 # Keep reference (this stays in memory)
 _executor = executor
