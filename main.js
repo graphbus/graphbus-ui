@@ -391,6 +391,22 @@ ipcMain.handle('python:execute', async (event, code) => {
 });
 
 // Shell command execution
+//
+// Two limits added here that the original lacked:
+//
+//   timeout: 300_000 (5 min) — Without this, a hung graphbus command
+//     (e.g. 'graphbus negotiate' with a bad API key that never returns, or
+//     'graphbus run' waiting for stdin) blocks the Electron main process
+//     forever, freezing the entire UI.  Five minutes is generous for any
+//     finite CLI operation; use the streaming variant for long-running daemons.
+//     Note: graphbus:build already worked around this with a manual
+//     Promise.race timeout — this replaces that pattern with the exec-native
+//     option so the subprocess is actually killed rather than just abandoned.
+//
+//   maxBuffer: 10 * 1024 * 1024 (10 MB) — The default is 1 MB. graphbus
+//     negotiate can emit full LLM agent responses for every round, easily
+//     overflowing 1 MB and throwing 'stdout maxBuffer exceeded', which looks
+//     like a crash rather than an output-size issue.
 ipcMain.handle('system:run-command', async (event, command) => {
     try {
         const { exec } = require('child_process');
@@ -400,7 +416,9 @@ ipcMain.handle('system:run-command', async (event, command) => {
         // Execute command in working directory
         const { stdout, stderr } = await execAsync(command, {
             cwd: workingDirectory,
-            env: { ...process.env, PYTHONUNBUFFERED: '1' }
+            env: { ...process.env, PYTHONUNBUFFERED: '1' },
+            timeout: 300_000,          // 5-minute hard cap; kills the subprocess on expiry
+            maxBuffer: 10 * 1024 * 1024, // 10 MB — negotiation output can be large
         });
 
         return {
