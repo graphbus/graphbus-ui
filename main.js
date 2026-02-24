@@ -760,14 +760,21 @@ ipcMain.handle('conversation:clear', async (event) => {
 });
 
 // Git and GitHub integration
+//
+// All three handlers below use execFile (not exec) so arguments are passed as
+// an array rather than interpolated into a shell command string.  exec() runs
+// the command through /bin/sh, so a branch name like "feat/$(rm -rf ~)" or a
+// commit message containing a double-quote would break the command or run
+// arbitrary code in the Electron main process.  execFile() bypasses the shell
+// entirely — the argument array is handed directly to the OS, so no shell
+// metacharacters are interpreted.
 ipcMain.handle('git:create-branch', async (event, branchName) => {
     try {
-        const { exec } = require('child_process');
+        const { execFile } = require('child_process');
         const { promisify } = require('util');
-        const execAsync = promisify(exec);
+        const execFileAsync = promisify(execFile);
 
-        // Create and checkout new branch
-        await execAsync(`git checkout -b ${branchName}`, { cwd: workingDirectory });
+        await execFileAsync('git', ['checkout', '-b', branchName], { cwd: workingDirectory });
 
         return { success: true, branch: branchName };
     } catch (error) {
@@ -777,18 +784,13 @@ ipcMain.handle('git:create-branch', async (event, branchName) => {
 
 ipcMain.handle('git:commit-and-push', async (event, message, branchName) => {
     try {
-        const { exec } = require('child_process');
+        const { execFile } = require('child_process');
         const { promisify } = require('util');
-        const execAsync = promisify(exec);
+        const execFileAsync = promisify(execFile);
 
-        // Add all changes
-        await execAsync('git add .', { cwd: workingDirectory });
-
-        // Commit
-        await execAsync(`git commit -m "${message}"`, { cwd: workingDirectory });
-
-        // Push to remote
-        await execAsync(`git push -u origin ${branchName}`, { cwd: workingDirectory });
+        await execFileAsync('git', ['add', '.'], { cwd: workingDirectory });
+        await execFileAsync('git', ['commit', '-m', message], { cwd: workingDirectory });
+        await execFileAsync('git', ['push', '-u', 'origin', branchName], { cwd: workingDirectory });
 
         return { success: true };
     } catch (error) {
@@ -798,13 +800,13 @@ ipcMain.handle('git:commit-and-push', async (event, message, branchName) => {
 
 ipcMain.handle('github:create-pr', async (event, title, body, branchName) => {
     try {
-        const { exec } = require('child_process');
+        const { execFile } = require('child_process');
         const { promisify } = require('util');
-        const execAsync = promisify(exec);
+        const execFileAsync = promisify(execFile);
 
-        // Create PR using gh CLI
-        const { stdout } = await execAsync(
-            `gh pr create --title "${title}" --body "${body}" --head ${branchName}`,
+        const { stdout } = await execFileAsync(
+            'gh',
+            ['pr', 'create', '--title', title, '--body', body, '--head', branchName],
             { cwd: workingDirectory }
         );
 
