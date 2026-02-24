@@ -36,10 +36,29 @@ contextBridge.exposeInMainWorld('graphbus', {
     runCommand: (command) => ipcRenderer.invoke('system:run-command', command),
     runCommandStreaming: (command) => ipcRenderer.invoke('system:run-command-streaming', command),
 
-    // Event listeners for streaming command output
-    onCommandOutput: (callback) => ipcRenderer.on('command-output', (event, data) => callback(data)),
-    onCommandComplete: (callback) => ipcRenderer.on('command-complete', (event, data) => callback(data)),
-    onCommandError: (callback) => ipcRenderer.on('command-error', (event, data) => callback(data)),
+    // Event listeners for streaming command output.
+    //
+    // ipcRenderer.on() stacks listeners — each call adds a NEW handler on top
+    // of any existing ones rather than replacing them.  In a session where the
+    // user runs multiple streaming commands, these channels accumulate listeners
+    // and every event fires multiple times (once per previously-registered callback).
+    //
+    // Fix: remove all listeners on the channel before registering the new one,
+    // ensuring at most one active listener per channel at any time.
+    // This is safe for a single-window app where only one streaming session runs
+    // at a time and the renderer reregisters on each new command.
+    onCommandOutput: (callback) => {
+        ipcRenderer.removeAllListeners('command-output');
+        ipcRenderer.on('command-output', (event, data) => callback(data));
+    },
+    onCommandComplete: (callback) => {
+        ipcRenderer.removeAllListeners('command-complete');
+        ipcRenderer.on('command-complete', (event, data) => callback(data));
+    },
+    onCommandError: (callback) => {
+        ipcRenderer.removeAllListeners('command-error');
+        ipcRenderer.on('command-error', (event, data) => callback(data));
+    },
 
     // Claude AI operations
     claudeInitialize: (apiKey, shouldSave = true) => ipcRenderer.invoke('claude:initialize', apiKey, shouldSave),
