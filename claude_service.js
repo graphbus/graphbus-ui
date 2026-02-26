@@ -1,6 +1,13 @@
 // claude_service.js - Claude AI integration for conversational interface
 const Anthropic = require('@anthropic-ai/sdk');
 
+// Maximum number of full turns (user + assistant pairs) to retain in memory.
+// Beyond this, the oldest turns are pruned so the total message count never
+// grows to a size that would exceed the model's context window.  The system
+// prompt is sent separately on every call, so the substantive coaching context
+// is always present regardless of how long the conversation has been running.
+const MAX_HISTORY_TURNS = 20;
+
 class ClaudeService {
     constructor() {
         this.apiKey = null;
@@ -345,11 +352,12 @@ NEVER leave compound requests half-finished!`;
                     .trim();
             }
 
-            // Add assistant response to history
+            // Add assistant response to history, then evict stale turns if needed
             this.conversationHistory.push({
                 role: 'assistant',
                 content: assistantMessage
             });
+            this._trimHistory();
 
             // Try to parse as JSON (for structured actions)
             try {
@@ -374,6 +382,20 @@ NEVER leave compound requests half-finished!`;
             this.conversationHistory.pop();
             console.error('Claude API error:', error);
             throw new Error(`Claude API error: ${error.message}`);
+        }
+    }
+
+    _trimHistory() {
+        // Each full turn is 2 messages (user + assistant).  Remove oldest pairs
+        // from the front until we are at or below MAX_HISTORY_TURNS, always
+        // removing in multiples of 2 to preserve the alternating-role invariant
+        // that the Anthropic API requires (conversation must start with 'user').
+        const maxMessages = MAX_HISTORY_TURNS * 2;
+        if (this.conversationHistory.length > maxMessages) {
+            const excess = this.conversationHistory.length - maxMessages;
+            // Round up to an even number so we always drop complete pairs
+            const toRemove = excess % 2 === 0 ? excess : excess + 1;
+            this.conversationHistory.splice(0, toRemove);
         }
     }
 
