@@ -37,6 +37,7 @@
       "main.js",
       "preload.js",
       "renderer.js",
+      "claude_service.js",
       "python_bridge.js",
       "index.html",
       "styles.css",
