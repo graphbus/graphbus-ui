@@ -826,13 +826,22 @@ ipcMain.handle('github:create-pr', async (event, title, body, branchName) => {
 
 ipcMain.handle('github:get-pr-comments', async (event, prNumber) => {
     try {
-        const { exec } = require('child_process');
+        // Use execFile (not exec) for the same reason documented on git:create-branch
+        // above: prNumber comes from the renderer process, so interpolating it into a
+        // shell command string would allow arbitrary command injection
+        // (e.g. prNumber = "1; rm -rf ~").  execFile passes arguments directly to the
+        // OS without a shell, so metacharacters in prNumber are never interpreted.
+        const { execFile } = require('child_process');
         const { promisify } = require('util');
-        const execAsync = promisify(exec);
+        const execFileAsync = promisify(execFile);
 
-        // Get PR comments using gh CLI
-        const { stdout } = await execAsync(
-            `gh pr view ${prNumber} --json comments --jq '.comments[] | {author: .author.login, body: .body, createdAt: .createdAt}'`,
+        const { stdout } = await execFileAsync(
+            'gh',
+            [
+                'pr', 'view', String(prNumber),
+                '--json', 'comments',
+                '--jq', '.comments[] | {author: .author.login, body: .body, createdAt: .createdAt}',
+            ],
             { cwd: workingDirectory }
         );
 
