@@ -613,21 +613,32 @@ ipcMain.handle('graphbus:rehydrate-state', async (event, workingDirectory) => {
             return { success: false, error: '.graphbus directory not found' };
         }
 
+        // Helper: return parsed JSON for <dir>/<filename>, or null if absent.
+        // Centralises the exists-read-parse triple that was previously repeated
+        // verbatim for every artifact file, making it easy to add new files later.
+        const loadJson = (filename) => {
+            const filePath = path.join(graphbusDir, filename);
+            return fs.existsSync(filePath)
+                ? JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+                : null;
+        };
+
         const state = {
             hasGraphbus: true,
             graph: null,
-            buildSummary: null,
-            conversationHistory: null,
-            negotiations: null,
-            modifiedFiles: null,
-            agents: null,
-            topics: null
+            buildSummary:        loadJson('build_summary.json'),
+            conversationHistory: loadJson('conversation_history.json'),
+            negotiations:        loadJson('negotiations.json'),
+            modifiedFiles:       loadJson('modified_files.json'),
+            agents:              loadJson('agents.json'),
+            topics:              loadJson('topics.json'),
         };
 
-        // Load graph.json
-        const graphPath = path.join(graphbusDir, 'graph.json');
-        if (fs.existsSync(graphPath)) {
-            const graphData = JSON.parse(fs.readFileSync(graphPath, 'utf-8'));
+        // graph.json needs an additional shape transform: the raw format uses
+        // 'src'/'dst' for edges and nests agent metadata under node.data, but
+        // the UI expects 'source'/'target' and a flat node structure.
+        const graphData = loadJson('graph.json');
+        if (graphData) {
             state.graph = {
                 nodes: graphData.nodes.map(node => ({
                     id: node.name,
@@ -643,42 +654,6 @@ ipcMain.handle('graphbus:rehydrate-state', async (event, workingDirectory) => {
                     type: edge.data?.edge_type || 'depends_on'
                 }))
             };
-        }
-
-        // Load build_summary.json
-        const buildSummaryPath = path.join(graphbusDir, 'build_summary.json');
-        if (fs.existsSync(buildSummaryPath)) {
-            state.buildSummary = JSON.parse(fs.readFileSync(buildSummaryPath, 'utf-8'));
-        }
-
-        // Load conversation_history.json
-        const conversationPath = path.join(graphbusDir, 'conversation_history.json');
-        if (fs.existsSync(conversationPath)) {
-            state.conversationHistory = JSON.parse(fs.readFileSync(conversationPath, 'utf-8'));
-        }
-
-        // Load negotiations.json
-        const negotiationsPath = path.join(graphbusDir, 'negotiations.json');
-        if (fs.existsSync(negotiationsPath)) {
-            state.negotiations = JSON.parse(fs.readFileSync(negotiationsPath, 'utf-8'));
-        }
-
-        // Load modified_files.json
-        const modifiedFilesPath = path.join(graphbusDir, 'modified_files.json');
-        if (fs.existsSync(modifiedFilesPath)) {
-            state.modifiedFiles = JSON.parse(fs.readFileSync(modifiedFilesPath, 'utf-8'));
-        }
-
-        // Load agents.json
-        const agentsPath = path.join(graphbusDir, 'agents.json');
-        if (fs.existsSync(agentsPath)) {
-            state.agents = JSON.parse(fs.readFileSync(agentsPath, 'utf-8'));
-        }
-
-        // Load topics.json
-        const topicsPath = path.join(graphbusDir, 'topics.json');
-        if (fs.existsSync(topicsPath)) {
-            state.topics = JSON.parse(fs.readFileSync(topicsPath, 'utf-8'));
         }
 
         return { success: true, result: state };
