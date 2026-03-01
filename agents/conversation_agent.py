@@ -1,5 +1,5 @@
 
-from graphbus import graphbus_agent, invoke
+from graphbus import graphbus_agent
 from typing import Dict, List
 
 @graphbus_agent

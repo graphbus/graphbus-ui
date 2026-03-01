@@ -1,4 +1,4 @@
-from graphbus import graphbus_agent, subscribe
+from graphbus import graphbus_agent
 from typing import Dict, List, Set
 
 @graphbus_agent(name="RoomManager")
