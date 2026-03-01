@@ -1,8 +1,12 @@
 // main.js - Electron main process
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { exec, execFile, spawn } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const PythonBridge = require('./python_bridge');
 const ClaudeService = require('./claude_service');
 
@@ -282,14 +286,12 @@ function createApplicationMenu() {
                 {
                     label: 'GraphBus Documentation',
                     click: async () => {
-                        const { shell } = require('electron');
                         await shell.openExternal('https://github.com/graphbus/graphbus-core');
                     }
                 },
                 {
                     label: 'Report Issue',
                     click: async () => {
-                        const { shell } = require('electron');
                         await shell.openExternal('https://github.com/graphbus/graphbus-ui/issues');
                     }
                 },
@@ -409,10 +411,6 @@ ipcMain.handle('python:execute', async (event, code) => {
 //     like a crash rather than an output-size issue.
 ipcMain.handle('system:run-command', async (event, command) => {
     try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
         // Execute command in working directory
         const { stdout, stderr } = await execAsync(command, {
             cwd: workingDirectory,
@@ -438,8 +436,6 @@ ipcMain.handle('system:run-command', async (event, command) => {
 // Streaming command execution for real-time output
 ipcMain.handle('system:run-command-streaming', async (event, command) => {
     return new Promise((resolve) => {
-        const { spawn } = require('child_process');
-
         // Spawn process with unbuffered output
         const proc = spawn(command, {
             cwd: workingDirectory,
@@ -745,10 +741,6 @@ ipcMain.handle('conversation:clear', async (event) => {
 // metacharacters are interpreted.
 ipcMain.handle('git:create-branch', async (event, branchName) => {
     try {
-        const { execFile } = require('child_process');
-        const { promisify } = require('util');
-        const execFileAsync = promisify(execFile);
-
         await execFileAsync('git', ['checkout', '-b', branchName], { cwd: workingDirectory });
 
         return { success: true, branch: branchName };
@@ -759,10 +751,6 @@ ipcMain.handle('git:create-branch', async (event, branchName) => {
 
 ipcMain.handle('git:commit-and-push', async (event, message, branchName) => {
     try {
-        const { execFile } = require('child_process');
-        const { promisify } = require('util');
-        const execFileAsync = promisify(execFile);
-
         await execFileAsync('git', ['add', '.'], { cwd: workingDirectory });
         await execFileAsync('git', ['commit', '-m', message], { cwd: workingDirectory });
         await execFileAsync('git', ['push', '-u', 'origin', branchName], { cwd: workingDirectory });
@@ -775,10 +763,6 @@ ipcMain.handle('git:commit-and-push', async (event, message, branchName) => {
 
 ipcMain.handle('github:create-pr', async (event, title, body, branchName) => {
     try {
-        const { execFile } = require('child_process');
-        const { promisify } = require('util');
-        const execFileAsync = promisify(execFile);
-
         const { stdout } = await execFileAsync(
             'gh',
             ['pr', 'create', '--title', title, '--body', body, '--head', branchName],
@@ -806,10 +790,6 @@ ipcMain.handle('github:get-pr-comments', async (event, prNumber) => {
         // shell command string would allow arbitrary command injection
         // (e.g. prNumber = "1; rm -rf ~").  execFile passes arguments directly to the
         // OS without a shell, so metacharacters in prNumber are never interpreted.
-        const { execFile } = require('child_process');
-        const { promisify } = require('util');
-        const execFileAsync = promisify(execFile);
-
         const { stdout } = await execFileAsync(
             'gh',
             [
