@@ -1,8 +1,12 @@
 // main.js - Electron main process
-const { app, BrowserWindow, ipcMain, dialog, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+const { exec, execFile, spawn } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 const PythonBridge = require('./python_bridge');
 const ClaudeService = require('./claude_service');
 
@@ -282,14 +286,12 @@ function createApplicationMenu() {
                 {
                     label: 'GraphBus Documentation',
                     click: async () => {
-                        const { shell } = require('electron');
                         await shell.openExternal('https://github.com/graphbus/graphbus-core');
                     }
                 },
                 {
                     label: 'Report Issue',
                     click: async () => {
-                        const { shell } = require('electron');
                         await shell.openExternal('https://github.com/graphbus/graphbus-ui/issues');
                     }
                 },
@@ -391,16 +393,30 @@ ipcMain.handle('python:execute', async (event, code) => {
 });
 
 // Shell command execution
+//
+// Two limits added here that the original lacked:
+//
+//   timeout: 300_000 (5 min) — Without this, a hung graphbus command
+//     (e.g. 'graphbus negotiate' with a bad API key that never returns, or
+//     'graphbus run' waiting for stdin) blocks the Electron main process
+//     forever, freezing the entire UI.  Five minutes is generous for any
+//     finite CLI operation; use the streaming variant for long-running daemons.
+//     Note: graphbus:build already worked around this with a manual
+//     Promise.race timeout — this replaces that pattern with the exec-native
+//     option so the subprocess is actually killed rather than just abandoned.
+//
+//   maxBuffer: 10 * 1024 * 1024 (10 MB) — The default is 1 MB. graphbus
+//     negotiate can emit full LLM agent responses for every round, easily
+//     overflowing 1 MB and throwing 'stdout maxBuffer exceeded', which looks
+//     like a crash rather than an output-size issue.
 ipcMain.handle('system:run-command', async (event, command) => {
     try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
         // Execute command in working directory
         const { stdout, stderr } = await execAsync(command, {
             cwd: workingDirectory,
-            env: { ...process.env, PYTHONUNBUFFERED: '1' }
+            env: { ...process.env, PYTHONUNBUFFERED: '1' },
+            timeout: 300_000,          // 5-minute hard cap; kills the subprocess on expiry
+            maxBuffer: 10 * 1024 * 1024, // 10 MB — negotiation output can be large
         });
 
         return {
@@ -420,8 +436,6 @@ ipcMain.handle('system:run-command', async (event, command) => {
 // Streaming command execution for real-time output
 ipcMain.handle('system:run-command-streaming', async (event, command) => {
     return new Promise((resolve) => {
-        const { spawn } = require('child_process');
-
         // Spawn process with unbuffered output
         const proc = spawn(command, {
             cwd: workingDirectory,
@@ -595,21 +609,32 @@ ipcMain.handle('graphbus:rehydrate-state', async (event, workingDirectory) => {
             return { success: false, error: '.graphbus directory not found' };
         }
 
+        // Helper: return parsed JSON for <dir>/<filename>, or null if absent.
+        // Centralises the exists-read-parse triple that was previously repeated
+        // verbatim for every artifact file, making it easy to add new files later.
+        const loadJson = (filename) => {
+            const filePath = path.join(graphbusDir, filename);
+            return fs.existsSync(filePath)
+                ? JSON.parse(fs.readFileSync(filePath, 'utf-8'))
+                : null;
+        };
+
         const state = {
             hasGraphbus: true,
             graph: null,
-            buildSummary: null,
-            conversationHistory: null,
-            negotiations: null,
-            modifiedFiles: null,
-            agents: null,
-            topics: null
+            buildSummary:        loadJson('build_summary.json'),
+            conversationHistory: loadJson('conversation_history.json'),
+            negotiations:        loadJson('negotiations.json'),
+            modifiedFiles:       loadJson('modified_files.json'),
+            agents:              loadJson('agents.json'),
+            topics:              loadJson('topics.json'),
         };
 
-        // Load graph.json
-        const graphPath = path.join(graphbusDir, 'graph.json');
-        if (fs.existsSync(graphPath)) {
-            const graphData = JSON.parse(fs.readFileSync(graphPath, 'utf-8'));
+        // graph.json needs an additional shape transform: the raw format uses
+        // 'src'/'dst' for edges and nests agent metadata under node.data, but
+        // the UI expects 'source'/'target' and a flat node structure.
+        const graphData = loadJson('graph.json');
+        if (graphData) {
             state.graph = {
                 nodes: graphData.nodes.map(node => ({
                     id: node.name,
@@ -625,42 +650,6 @@ ipcMain.handle('graphbus:rehydrate-state', async (event, workingDirectory) => {
                     type: edge.data?.edge_type || 'depends_on'
                 }))
             };
-        }
-
-        // Load build_summary.json
-        const buildSummaryPath = path.join(graphbusDir, 'build_summary.json');
-        if (fs.existsSync(buildSummaryPath)) {
-            state.buildSummary = JSON.parse(fs.readFileSync(buildSummaryPath, 'utf-8'));
-        }
-
-        // Load conversation_history.json
-        const conversationPath = path.join(graphbusDir, 'conversation_history.json');
-        if (fs.existsSync(conversationPath)) {
-            state.conversationHistory = JSON.parse(fs.readFileSync(conversationPath, 'utf-8'));
-        }
-
-        // Load negotiations.json
-        const negotiationsPath = path.join(graphbusDir, 'negotiations.json');
-        if (fs.existsSync(negotiationsPath)) {
-            state.negotiations = JSON.parse(fs.readFileSync(negotiationsPath, 'utf-8'));
-        }
-
-        // Load modified_files.json
-        const modifiedFilesPath = path.join(graphbusDir, 'modified_files.json');
-        if (fs.existsSync(modifiedFilesPath)) {
-            state.modifiedFiles = JSON.parse(fs.readFileSync(modifiedFilesPath, 'utf-8'));
-        }
-
-        // Load agents.json
-        const agentsPath = path.join(graphbusDir, 'agents.json');
-        if (fs.existsSync(agentsPath)) {
-            state.agents = JSON.parse(fs.readFileSync(agentsPath, 'utf-8'));
-        }
-
-        // Load topics.json
-        const topicsPath = path.join(graphbusDir, 'topics.json');
-        if (fs.existsSync(topicsPath)) {
-            state.topics = JSON.parse(fs.readFileSync(topicsPath, 'utf-8'));
         }
 
         return { success: true, result: state };
@@ -742,14 +731,17 @@ ipcMain.handle('conversation:clear', async (event) => {
 });
 
 // Git and GitHub integration
+//
+// All three handlers below use execFile (not exec) so arguments are passed as
+// an array rather than interpolated into a shell command string.  exec() runs
+// the command through /bin/sh, so a branch name like "feat/$(rm -rf ~)" or a
+// commit message containing a double-quote would break the command or run
+// arbitrary code in the Electron main process.  execFile() bypasses the shell
+// entirely — the argument array is handed directly to the OS, so no shell
+// metacharacters are interpreted.
 ipcMain.handle('git:create-branch', async (event, branchName) => {
     try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
-        // Create and checkout new branch
-        await execAsync(`git checkout -b ${branchName}`, { cwd: workingDirectory });
+        await execFileAsync('git', ['checkout', '-b', branchName], { cwd: workingDirectory });
 
         return { success: true, branch: branchName };
     } catch (error) {
@@ -759,18 +751,9 @@ ipcMain.handle('git:create-branch', async (event, branchName) => {
 
 ipcMain.handle('git:commit-and-push', async (event, message, branchName) => {
     try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
-        // Add all changes
-        await execAsync('git add .', { cwd: workingDirectory });
-
-        // Commit
-        await execAsync(`git commit -m "${message}"`, { cwd: workingDirectory });
-
-        // Push to remote
-        await execAsync(`git push -u origin ${branchName}`, { cwd: workingDirectory });
+        await execFileAsync('git', ['add', '.'], { cwd: workingDirectory });
+        await execFileAsync('git', ['commit', '-m', message], { cwd: workingDirectory });
+        await execFileAsync('git', ['push', '-u', 'origin', branchName], { cwd: workingDirectory });
 
         return { success: true };
     } catch (error) {
@@ -780,13 +763,9 @@ ipcMain.handle('git:commit-and-push', async (event, message, branchName) => {
 
 ipcMain.handle('github:create-pr', async (event, title, body, branchName) => {
     try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
-        // Create PR using gh CLI
-        const { stdout } = await execAsync(
-            `gh pr create --title "${title}" --body "${body}" --head ${branchName}`,
+        const { stdout } = await execFileAsync(
+            'gh',
+            ['pr', 'create', '--title', title, '--body', body, '--head', branchName],
             { cwd: workingDirectory }
         );
 
@@ -806,13 +785,18 @@ ipcMain.handle('github:create-pr', async (event, title, body, branchName) => {
 
 ipcMain.handle('github:get-pr-comments', async (event, prNumber) => {
     try {
-        const { exec } = require('child_process');
-        const { promisify } = require('util');
-        const execAsync = promisify(exec);
-
-        // Get PR comments using gh CLI
-        const { stdout } = await execAsync(
-            `gh pr view ${prNumber} --json comments --jq '.comments[] | {author: .author.login, body: .body, createdAt: .createdAt}'`,
+        // Use execFile (not exec) for the same reason documented on git:create-branch
+        // above: prNumber comes from the renderer process, so interpolating it into a
+        // shell command string would allow arbitrary command injection
+        // (e.g. prNumber = "1; rm -rf ~").  execFile passes arguments directly to the
+        // OS without a shell, so metacharacters in prNumber are never interpreted.
+        const { stdout } = await execFileAsync(
+            'gh',
+            [
+                'pr', 'view', String(prNumber),
+                '--json', 'comments',
+                '--jq', '.comments[] | {author: .author.login, body: .body, createdAt: .createdAt}',
+            ],
             { cwd: workingDirectory }
         );
 
