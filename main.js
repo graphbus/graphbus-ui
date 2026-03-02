@@ -559,6 +559,33 @@ ipcMain.handle('graphbus:get-stats', async (event) => {
     }
 });
 
+// Transform the raw graph.json structure into the shape the UI expects.
+//
+// graph.json stores edges as { src, dst } and nests agent metadata under
+// node.data, but the renderer expects { source, target } and a flat node
+// object.  This conversion was previously duplicated verbatim in both the
+// graphbus:load-graph and graphbus:rehydrate-state handlers — a single
+// schema change (e.g. adding a 'dependencies' field) would have required
+// two independent edits.  Centralising it here means both handlers stay
+// in sync automatically.
+function transformGraphData(graphData) {
+    return {
+        nodes: graphData.nodes.map(node => ({
+            id: node.name,
+            name: node.name,
+            module: node.data.module,
+            class_name: node.data.class_name,
+            methods: node.data.methods || [],
+            subscriptions: node.data.subscriptions || [],
+        })),
+        edges: graphData.edges.map(edge => ({
+            source: edge.src,  // graph.json uses 'src', not 'source'
+            target: edge.dst,  // graph.json uses 'dst', not 'target'
+            type: edge.data?.edge_type || 'depends_on',
+        })),
+    };
+}
+
 ipcMain.handle('graphbus:load-graph', async (event, artifactsDir) => {
     try {
         // Read graph.json directly - much simpler than Python bridge
@@ -570,28 +597,11 @@ ipcMain.handle('graphbus:load-graph', async (event, artifactsDir) => {
 
         const graphData = JSON.parse(fs.readFileSync(graphJsonPath, 'utf-8'));
 
-        // Transform to expected format for UI
-        const nodes = graphData.nodes.map(node => ({
-            id: node.name,
-            name: node.name,
-            module: node.data.module,
-            class_name: node.data.class_name,
-            methods: node.data.methods || [],
-            subscriptions: node.data.subscriptions || []
-        }));
-
-        const edges = graphData.edges.map(edge => ({
-            source: edge.src,  // graph.json uses 'src', not 'source'
-            target: edge.dst,  // graph.json uses 'dst', not 'target'
-            type: edge.data?.edge_type || 'depends_on'
-        }));
-
         return {
             success: true,
             result: {
-                nodes,
-                edges,
-                topics: [] // Can be loaded from topics.json if needed
+                ...transformGraphData(graphData),
+                topics: [] // topics.json is loaded separately in rehydrate-state
             }
         };
     } catch (error) {
@@ -630,26 +640,10 @@ ipcMain.handle('graphbus:rehydrate-state', async (event, workingDirectory) => {
             topics:              loadJson('topics.json'),
         };
 
-        // graph.json needs an additional shape transform: the raw format uses
-        // 'src'/'dst' for edges and nests agent metadata under node.data, but
-        // the UI expects 'source'/'target' and a flat node structure.
+        // graph.json needs an additional shape transform — see transformGraphData().
         const graphData = loadJson('graph.json');
         if (graphData) {
-            state.graph = {
-                nodes: graphData.nodes.map(node => ({
-                    id: node.name,
-                    name: node.name,
-                    module: node.data.module,
-                    class_name: node.data.class_name,
-                    methods: node.data.methods || [],
-                    subscriptions: node.data.subscriptions || []
-                })),
-                edges: graphData.edges.map(edge => ({
-                    source: edge.src,  // graph.json uses 'src', not 'source'
-                    target: edge.dst,  // graph.json uses 'dst', not 'target'
-                    type: edge.data?.edge_type || 'depends_on'
-                }))
-            };
+            state.graph = transformGraphData(graphData);
         }
 
         return { success: true, result: state };
