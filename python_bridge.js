@@ -22,6 +22,14 @@ class PythonBridge {
         console.log('PythonBridge initialized');
         console.log('Python path:', this.pythonPath);
         console.log('GraphBus path:', this.graphbusPath);
+
+        // Validate the graphbus-core path at construction time so a missing
+        // sibling directory surfaces immediately as a clear warning rather than
+        // as a cryptic "ModuleNotFoundError: No module named 'graphbus_core'"
+        // buried inside the first Python execution attempt.
+        if (!fs.existsSync(this.graphbusPath)) {
+            console.warn(`[PythonBridge] WARNING: graphbus-core not found at "${this.graphbusPath}" — all Python operations will fail. Expected the graphbus package to be a sibling of this directory.`);
+        }
     }
 
     async execute(code, extraEnv = {}) {

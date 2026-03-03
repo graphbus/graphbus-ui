@@ -1,6 +1,11 @@
 // claude_service.js - Claude AI integration for conversational interface
 const Anthropic = require('@anthropic-ai/sdk');
 
+// Claude model used for coaching conversations. Centralised here so a model
+// upgrade only requires a single-line change rather than a search through
+// business logic. Matches the pattern used by gemma-mcp for its model constant.
+const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
+
 // Maximum number of full turns (user + assistant pairs) to retain in memory.
 // Beyond this, the oldest turns are pruned so the total message count never
 // grows to a size that would exceed the model's context window.  The system
@@ -333,7 +338,7 @@ NEVER leave compound requests half-finished!`;
 
         try {
             const response = await this.client.messages.create({
-                model: 'claude-sonnet-4-5-20250929',
+                model: CLAUDE_MODEL,
                 max_tokens: 4096,
                 system: this.systemPrompt,
                 messages: this.conversationHistory
