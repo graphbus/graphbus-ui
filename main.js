@@ -498,15 +498,37 @@ ipcMain.handle('graphbus:build', async (event, config) => {
     try {
         console.log('Building agents with config:', config);
 
-        // Add timeout to prevent hanging
+        // Race the build against a 30 s deadline.
+        //
+        // The timer reference is saved so we can cancel it the moment the build
+        // finishes (success or non-timeout error) — without clearTimeout(), the
+        // 30 s countdown kept ticking as a leaked timer after every successful
+        // build, holding a Node.js handle unnecessarily.  .unref() is a safety
+        // net: if the timer somehow survives until Electron tries to quit, it
+        // won't block the process from exiting.
+        //
+        // Note: the timeout only rejects the outer Promise — the underlying
+        // PythonShell subprocess is NOT killed when it fires (python-shell's
+        // runString() static API provides no cancellation handle).  A timed-out
+        // build will continue in the background until Python finishes or the
+        // Electron window is closed.
+        let timeoutId;
         const buildPromise = pythonBridge.buildAgents(config);
-        const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Build timeout after 30 seconds')), 30000)
-        );
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(
+                () => reject(new Error('Build timeout after 30 seconds')),
+                30_000
+            ).unref();
+        });
 
-        const result = await Promise.race([buildPromise, timeoutPromise]);
+        let result;
+        try {
+            result = await Promise.race([buildPromise, timeoutPromise]);
+        } finally {
+            clearTimeout(timeoutId); // cancel timer whether build succeeded, failed, or timed out
+        }
+
         console.log('Build result:', result);
-
         return { success: true, result };
     } catch (error) {
         console.error('Build error:', error);
