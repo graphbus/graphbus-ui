@@ -4,7 +4,12 @@ const Anthropic = require('@anthropic-ai/sdk');
 // Claude model used for coaching conversations. Centralised here so a model
 // upgrade only requires a single-line change rather than a search through
 // business logic. Matches the pattern used by gemma-mcp for its model constant.
-const CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
+//
+// Using the undated alias ('claude-sonnet-4-6') rather than a dated snapshot
+// ('claude-sonnet-4-5-20250929') so Anthropic's API always resolves to the
+// latest stable Sonnet.  Dated snapshots eventually get deprecated and require
+// a code change to avoid 404s; the undated alias sidesteps that entirely.
+const CLAUDE_MODEL = 'claude-sonnet-4-6';
 
 // Maximum number of full turns (user + assistant pairs) to retain in memory.
 // Beyond this, the oldest turns are pruned so the total message count never
