@@ -24,6 +24,8 @@ class ClaudeService {
         this.client = null;
         this.conversationHistory = [];
         this.systemPrompt = null;
+        // Buffer for system-feedback messages (see addSystemMessage / chat).
+        this._pendingSystemMessages = [];
     }
 
     initialize(apiKey, workingDirectory) {
@@ -327,8 +329,22 @@ NEVER leave compound requests half-finished!`;
             throw new Error('Claude not initialized. Set API key first.');
         }
 
-        // Add system state context to the message
-        const contextMessage = `[System State: Built=${systemState.hasBuilt}, Running=${systemState.isRunning}, Phase=${systemState.phase}]\n\nUser: ${userMessage}`;
+        // Flush any buffered system messages (from addSystemMessage calls since
+        // the last chat turn) into this turn's context.  They are included here
+        // rather than as standalone role:'user' turns because the Anthropic API
+        // requires strictly alternating user/assistant messages.  Adding them as
+        // independent turns (the original approach) created two consecutive
+        // role:'user' messages whenever addSystemMessage was followed by chat()
+        // — which happens on every compound-request continuation after a command
+        // completes — causing the API to reject the call with an invalid-messages
+        // error and breaking the auto-continuation workflow entirely.
+        let systemFeedback = '';
+        if (this._pendingSystemMessages.length > 0) {
+            systemFeedback = this._pendingSystemMessages.map(m => `[System]: ${m}`).join('\n') + '\n\n';
+            this._pendingSystemMessages = [];
+        }
+
+        const contextMessage = `[System State: Built=${systemState.hasBuilt}, Running=${systemState.isRunning}, Phase=${systemState.phase}]\n\n${systemFeedback}User: ${userMessage}`;
 
         // Add user message to history BEFORE the call so it's part of the
         // conversation, but track the index so we can roll it back on failure.
@@ -432,15 +448,26 @@ NEVER leave compound requests half-finished!`;
     }
 
     addSystemMessage(message) {
-        // Add system feedback to context
-        this.conversationHistory.push({
-            role: 'user',
-            content: `[System]: ${message}`
-        });
+        // Buffer the message for inclusion in the next chat() call rather than
+        // pushing it directly into conversationHistory.
+        //
+        // The previous implementation added each system message as a standalone
+        // role:'user' turn.  Whenever renderer.js called addSystemMessage() and
+        // then immediately called chat() (e.g. every compound-request continuation
+        // after a CLI command completes), the history ended with two consecutive
+        // role:'user' entries — invalid per the Anthropic API, which requires
+        // strictly alternating user/assistant turns.  The API rejected those calls
+        // with an "invalid messages" error and the auto-continuation workflow
+        // silently broke.
+        //
+        // Buffering here and flushing in chat() folds all pending system feedback
+        // into a single user turn, preserving the alternating-role invariant.
+        this._pendingSystemMessages.push(message);
     }
 
     clearHistory() {
         this.conversationHistory = [];
+        this._pendingSystemMessages = [];
     }
 
     isInitialized() {
