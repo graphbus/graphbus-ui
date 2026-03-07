@@ -498,15 +498,37 @@ ipcMain.handle('graphbus:build', async (event, config) => {
     try {
         console.log('Building agents with config:', config);
 
-        // Add timeout to prevent hanging
+        // Race the build against a 30 s deadline.
+        //
+        // The timer reference is saved so we can cancel it the moment the build
+        // finishes (success or non-timeout error) — without clearTimeout(), the
+        // 30 s countdown kept ticking as a leaked timer after every successful
+        // build, holding a Node.js handle unnecessarily.  .unref() is a safety
+        // net: if the timer somehow survives until Electron tries to quit, it
+        // won't block the process from exiting.
+        //
+        // Note: the timeout only rejects the outer Promise — the underlying
+        // PythonShell subprocess is NOT killed when it fires (python-shell's
+        // runString() static API provides no cancellation handle).  A timed-out
+        // build will continue in the background until Python finishes or the
+        // Electron window is closed.
+        let timeoutId;
         const buildPromise = pythonBridge.buildAgents(config);
-        const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Build timeout after 30 seconds')), 30000)
-        );
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(
+                () => reject(new Error('Build timeout after 30 seconds')),
+                30_000
+            ).unref();
+        });
 
-        const result = await Promise.race([buildPromise, timeoutPromise]);
+        let result;
+        try {
+            result = await Promise.race([buildPromise, timeoutPromise]);
+        } finally {
+            clearTimeout(timeoutId); // cancel timer whether build succeeded, failed, or timed out
+        }
+
         console.log('Build result:', result);
-
         return { success: true, result };
     } catch (error) {
         console.error('Build error:', error);
@@ -559,6 +581,33 @@ ipcMain.handle('graphbus:get-stats', async (event) => {
     }
 });
 
+// Transform the raw graph.json structure into the shape the UI expects.
+//
+// graph.json stores edges as { src, dst } and nests agent metadata under
+// node.data, but the renderer expects { source, target } and a flat node
+// object.  This conversion was previously duplicated verbatim in both the
+// graphbus:load-graph and graphbus:rehydrate-state handlers — a single
+// schema change (e.g. adding a 'dependencies' field) would have required
+// two independent edits.  Centralising it here means both handlers stay
+// in sync automatically.
+function transformGraphData(graphData) {
+    return {
+        nodes: graphData.nodes.map(node => ({
+            id: node.name,
+            name: node.name,
+            module: node.data.module,
+            class_name: node.data.class_name,
+            methods: node.data.methods || [],
+            subscriptions: node.data.subscriptions || [],
+        })),
+        edges: graphData.edges.map(edge => ({
+            source: edge.src,  // graph.json uses 'src', not 'source'
+            target: edge.dst,  // graph.json uses 'dst', not 'target'
+            type: edge.data?.edge_type || 'depends_on',
+        })),
+    };
+}
+
 ipcMain.handle('graphbus:load-graph', async (event, artifactsDir) => {
     try {
         // Read graph.json directly - much simpler than Python bridge
@@ -570,28 +619,11 @@ ipcMain.handle('graphbus:load-graph', async (event, artifactsDir) => {
 
         const graphData = JSON.parse(fs.readFileSync(graphJsonPath, 'utf-8'));
 
-        // Transform to expected format for UI
-        const nodes = graphData.nodes.map(node => ({
-            id: node.name,
-            name: node.name,
-            module: node.data.module,
-            class_name: node.data.class_name,
-            methods: node.data.methods || [],
-            subscriptions: node.data.subscriptions || []
-        }));
-
-        const edges = graphData.edges.map(edge => ({
-            source: edge.src,  // graph.json uses 'src', not 'source'
-            target: edge.dst,  // graph.json uses 'dst', not 'target'
-            type: edge.data?.edge_type || 'depends_on'
-        }));
-
         return {
             success: true,
             result: {
-                nodes,
-                edges,
-                topics: [] // Can be loaded from topics.json if needed
+                ...transformGraphData(graphData),
+                topics: [] // topics.json is loaded separately in rehydrate-state
             }
         };
     } catch (error) {
@@ -630,26 +662,10 @@ ipcMain.handle('graphbus:rehydrate-state', async (event, workingDirectory) => {
             topics:              loadJson('topics.json'),
         };
 
-        // graph.json needs an additional shape transform: the raw format uses
-        // 'src'/'dst' for edges and nests agent metadata under node.data, but
-        // the UI expects 'source'/'target' and a flat node structure.
+        // graph.json needs an additional shape transform — see transformGraphData().
         const graphData = loadJson('graph.json');
         if (graphData) {
-            state.graph = {
-                nodes: graphData.nodes.map(node => ({
-                    id: node.name,
-                    name: node.name,
-                    module: node.data.module,
-                    class_name: node.data.class_name,
-                    methods: node.data.methods || [],
-                    subscriptions: node.data.subscriptions || []
-                })),
-                edges: graphData.edges.map(edge => ({
-                    source: edge.src,  // graph.json uses 'src', not 'source'
-                    target: edge.dst,  // graph.json uses 'dst', not 'target'
-                    type: edge.data?.edge_type || 'depends_on'
-                }))
-            };
+            state.graph = transformGraphData(graphData);
         }
 
         return { success: true, result: state };
