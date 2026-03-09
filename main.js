@@ -2,6 +2,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const fsp = fs.promises; // async file I/O — never blocks the Electron main-process event loop
 const os = require('os');
 const { exec, execFile, spawn } = require('child_process');
 const { promisify } = require('util');
@@ -695,19 +696,20 @@ ipcMain.handle('conversation:save', async (event, conversationData) => {
         const conversationDir = path.join(workingDirectory, '.graphbus');
         const conversationFile = path.join(conversationDir, 'conversation_history.json');
 
-        // Ensure .graphbus directory exists
-        if (!fs.existsSync(conversationDir)) {
-            fs.mkdirSync(conversationDir, { recursive: true });
-        }
+        // mkdir({ recursive: true }) is idempotent — no existsSync needed, and
+        // the await ensures the directory is present before we write.
+        await fsp.mkdir(conversationDir, { recursive: true });
 
-        // Save conversation with metadata
         const data = {
             timestamp: new Date().toISOString(),
             workingDirectory: workingDirectory,
             messages: conversationData
         };
 
-        fs.writeFileSync(conversationFile, JSON.stringify(data, null, 2), 'utf-8');
+        // Async write: never blocks the Electron main-process event loop.
+        // Conversation files can exceed 100 KB after a long session; writeFileSync
+        // on a file that size would freeze the UI for a perceptible moment.
+        await fsp.writeFile(conversationFile, JSON.stringify(data, null, 2), 'utf-8');
         return { success: true };
     } catch (error) {
         console.error('Error saving conversation:', error);
@@ -719,11 +721,17 @@ ipcMain.handle('conversation:load', async (event) => {
     try {
         const conversationFile = path.join(workingDirectory, '.graphbus', 'conversation_history.json');
 
-        if (!fs.existsSync(conversationFile)) {
-            return { success: true, result: null };
+        // Try to read directly; catch ENOENT instead of existsSync + readFileSync.
+        // existsSync + readFileSync is a TOCTOU race: the file could be deleted
+        // between the check and the read.  The try/catch approach is atomic.
+        let raw;
+        try {
+            raw = await fsp.readFile(conversationFile, 'utf-8');
+        } catch (e) {
+            if (e.code === 'ENOENT') return { success: true, result: null };
+            throw e; // unexpected error — re-throw to the outer catch
         }
-
-        const data = JSON.parse(fs.readFileSync(conversationFile, 'utf-8'));
+        const data = JSON.parse(raw);
         return { success: true, result: data };
     } catch (error) {
         console.error('Error loading conversation:', error);
@@ -735,10 +743,12 @@ ipcMain.handle('conversation:clear', async (event) => {
     try {
         const conversationFile = path.join(workingDirectory, '.graphbus', 'conversation_history.json');
 
-        if (fs.existsSync(conversationFile)) {
-            fs.unlinkSync(conversationFile);
+        // Attempt unlink; silently ignore ENOENT (nothing to delete is fine).
+        try {
+            await fsp.unlink(conversationFile);
+        } catch (e) {
+            if (e.code !== 'ENOENT') throw e;
         }
-
         return { success: true };
     } catch (error) {
         console.error('Error clearing conversation:', error);
@@ -829,18 +839,20 @@ ipcMain.handle('pr:save-tracking', async (event, prData) => {
         const graphbusDir = path.join(workingDirectory, '.graphbus');
         const trackingFile = path.join(graphbusDir, 'pr_tracking.json');
 
+        // Read existing tracking data asynchronously.  Fall back to empty list
+        // on ENOENT (first PR tracked in this directory).
         let tracking = { prs: [] };
-        if (fs.existsSync(trackingFile)) {
-            tracking = JSON.parse(fs.readFileSync(trackingFile, 'utf-8'));
+        try {
+            const raw = await fsp.readFile(trackingFile, 'utf-8');
+            tracking = JSON.parse(raw);
+        } catch (e) {
+            if (e.code !== 'ENOENT') throw e;
         }
 
-        // Add new PR data
-        tracking.prs.push({
-            ...prData,
-            timestamp: Date.now()
-        });
+        tracking.prs.push({ ...prData, timestamp: Date.now() });
 
-        fs.writeFileSync(trackingFile, JSON.stringify(tracking, null, 2));
+        await fsp.mkdir(graphbusDir, { recursive: true });
+        await fsp.writeFile(trackingFile, JSON.stringify(tracking, null, 2));
 
         return { success: true };
     } catch (error) {
@@ -852,11 +864,14 @@ ipcMain.handle('pr:load-tracking', async (event) => {
     try {
         const trackingFile = path.join(workingDirectory, '.graphbus', 'pr_tracking.json');
 
-        if (!fs.existsSync(trackingFile)) {
-            return { success: true, result: { prs: [] } };
+        let raw;
+        try {
+            raw = await fsp.readFile(trackingFile, 'utf-8');
+        } catch (e) {
+            if (e.code === 'ENOENT') return { success: true, result: { prs: [] } };
+            throw e;
         }
-
-        const data = JSON.parse(fs.readFileSync(trackingFile, 'utf-8'));
+        const data = JSON.parse(raw);
         return { success: true, result: data };
     } catch (error) {
         return { success: false, error: error.message };
