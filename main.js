@@ -11,6 +11,18 @@ const execFileAsync = promisify(execFile);
 const PythonBridge = require('./python_bridge');
 const ClaudeService = require('./claude_service');
 
+// Timeout for git and GitHub CLI operations.
+// git push and gh pr create are network calls and can hang indefinitely if:
+//   - The remote is unreachable or slow (TCP timeout is OS-level, often 2+ min)
+//   - SSH auth requires an interactive passphrase prompt
+//   - GitHub rate-limiting holds the connection open
+// Without a timeout, a stuck IPC handler blocks the entire Electron main-process
+// event loop, freezing the UI with no recovery path short of killing the app.
+// 60 s is generous for a push/PR creation on a reasonable connection; local-only
+// operations (git add, git checkout -b) complete in well under a second but
+// share the same constant for simplicity.
+const GIT_TIMEOUT_MS = 60_000;
+
 let mainWindow;
 let pythonBridge;
 let claudeService;
@@ -767,7 +779,12 @@ ipcMain.handle('conversation:clear', async (event) => {
 // metacharacters are interpreted.
 ipcMain.handle('git:create-branch', async (event, branchName) => {
     try {
-        await execFileAsync('git', ['checkout', '-b', branchName], { cwd: workingDirectory });
+        // execFile (not exec) so branchName is never interpolated into a shell
+        // command string — a name containing shell metacharacters can't inject.
+        await execFileAsync('git', ['checkout', '-b', branchName], {
+            cwd: workingDirectory,
+            timeout: GIT_TIMEOUT_MS,
+        });
 
         return { success: true, branch: branchName };
     } catch (error) {
@@ -777,9 +794,20 @@ ipcMain.handle('git:create-branch', async (event, branchName) => {
 
 ipcMain.handle('git:commit-and-push', async (event, message, branchName) => {
     try {
-        await execFileAsync('git', ['add', '.'], { cwd: workingDirectory });
-        await execFileAsync('git', ['commit', '-m', message], { cwd: workingDirectory });
-        await execFileAsync('git', ['push', '-u', 'origin', branchName], { cwd: workingDirectory });
+        await execFileAsync('git', ['add', '.'], {
+            cwd: workingDirectory,
+            timeout: GIT_TIMEOUT_MS,
+        });
+        await execFileAsync('git', ['commit', '-m', message], {
+            cwd: workingDirectory,
+            timeout: GIT_TIMEOUT_MS,
+        });
+        // push is a network call — the timeout here is the primary safety net
+        // against a hung connection freezing the Electron main-process event loop.
+        await execFileAsync('git', ['push', '-u', 'origin', branchName], {
+            cwd: workingDirectory,
+            timeout: GIT_TIMEOUT_MS,
+        });
 
         return { success: true };
     } catch (error) {
@@ -792,7 +820,7 @@ ipcMain.handle('github:create-pr', async (event, title, body, branchName) => {
         const { stdout } = await execFileAsync(
             'gh',
             ['pr', 'create', '--title', title, '--body', body, '--head', branchName],
-            { cwd: workingDirectory }
+            { cwd: workingDirectory, timeout: GIT_TIMEOUT_MS }
         );
 
         // Extract PR URL from output
@@ -823,7 +851,7 @@ ipcMain.handle('github:get-pr-comments', async (event, prNumber) => {
                 '--json', 'comments',
                 '--jq', '.comments[] | {author: .author.login, body: .body, createdAt: .createdAt}',
             ],
-            { cwd: workingDirectory }
+            { cwd: workingDirectory, timeout: GIT_TIMEOUT_MS }
         );
 
         const comments = stdout.trim().split('\n').filter(line => line).map(line => JSON.parse(line));
