@@ -459,6 +459,26 @@ ipcMain.handle('system:run-command-streaming', async (event, command) => {
         let stdoutData = '';
         let stderrData = '';
 
+        // Hard-kill timeout — matches system:run-command's 5-minute cap.
+        // Without this, a hung streaming command (e.g. 'graphbus negotiate'
+        // with an unresponsive API, or any command waiting on stdin) runs
+        // forever: the subprocess leaks, the IPC promise never resolves, and
+        // the UI spinner keeps spinning until the Electron window is closed.
+        // proc.kill() sends SIGTERM by default; SIGKILL ensures the subprocess
+        // is reaped even if it ignores SIGTERM (e.g. Python with custom signal
+        // handlers).  The settled flag prevents double-resolution if the
+        // process exits naturally at almost the same moment the timer fires.
+        const STREAM_TIMEOUT_MS = 300_000; // 5 minutes — same as system:run-command
+        let settled = false;
+        const killTimer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            console.error(`[streaming] command timed out after ${STREAM_TIMEOUT_MS / 1000}s — killing subprocess`);
+            proc.kill('SIGKILL');
+            event.sender.send('command-error', { error: `Command timed out after ${STREAM_TIMEOUT_MS / 1000}s` });
+            resolve({ success: false, error: `Streaming command timed out after ${STREAM_TIMEOUT_MS / 1000}s` });
+        }, STREAM_TIMEOUT_MS);
+
         // Stream stdout line by line
         proc.stdout.on('data', (data) => {
             const text = data.toString();
@@ -485,6 +505,10 @@ ipcMain.handle('system:run-command-streaming', async (event, command) => {
 
         // Handle process completion
         proc.on('close', (code) => {
+            if (settled) return; // timed out — already resolved above
+            settled = true;
+            clearTimeout(killTimer); // process exited naturally; cancel the kill timer
+
             // Send completion event
             event.sender.send('command-complete', { code });
 
@@ -497,6 +521,10 @@ ipcMain.handle('system:run-command-streaming', async (event, command) => {
 
         // Handle errors
         proc.on('error', (error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(killTimer);
+
             event.sender.send('command-error', { error: error.message });
 
             resolve({
