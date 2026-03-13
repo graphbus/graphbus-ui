@@ -1,6 +1,7 @@
 {
   "name": "graphbus-ui",
   "version": "1.0.0",
+  "private": true,
   "description": "Electron UI for GraphBus agent orchestration with natural language control",
   "main": "main.js",
   "scripts": {
@@ -35,7 +36,6 @@
       "renderer.js",
       "claude_service.js",
       "python_bridge.js",
-      "claude_service.js",
       "index.html",
       "styles.css",
       "assets/**/*"

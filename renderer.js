@@ -780,10 +780,19 @@ async function sendCommand() {
             workingDirectory: workingDirectory
         });
 
-        // Remove thinking indicator
+        // Remove thinking indicator.
+        // addMessage() wraps every message in a .message-wrapper div that
+        // contains both the text div AND a copy button (📋), so
+        // lastChild.textContent is "...📋", not "..." — the naive equality
+        // check always failed and the spinner accumulated in the DOM.
+        // Query into the wrapper for the actual .message element instead.
         const messages = document.getElementById('messages');
-        if (messages.lastChild && messages.lastChild.textContent === '...') {
-            messages.removeChild(messages.lastChild);
+        const lastWrapper = messages.lastChild;
+        if (lastWrapper) {
+            const lastMsg = lastWrapper.querySelector('.message.assistant');
+            if (lastMsg && lastMsg.textContent === '...') {
+                messages.removeChild(lastWrapper);
+            }
         }
 
         if (response.success) {

@@ -2,6 +2,7 @@
 const { app, BrowserWindow, ipcMain, dialog, Menu, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const fsp = fs.promises; // async file I/O — never blocks the Electron main-process event loop
 const os = require('os');
 const { exec, execFile, spawn } = require('child_process');
 const { promisify } = require('util');
@@ -9,6 +10,18 @@ const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 const PythonBridge = require('./python_bridge');
 const ClaudeService = require('./claude_service');
+
+// Timeout for git and GitHub CLI operations.
+// git push and gh pr create are network calls and can hang indefinitely if:
+//   - The remote is unreachable or slow (TCP timeout is OS-level, often 2+ min)
+//   - SSH auth requires an interactive passphrase prompt
+//   - GitHub rate-limiting holds the connection open
+// Without a timeout, a stuck IPC handler blocks the entire Electron main-process
+// event loop, freezing the UI with no recovery path short of killing the app.
+// 60 s is generous for a push/PR creation on a reasonable connection; local-only
+// operations (git add, git checkout -b) complete in well under a second but
+// share the same constant for simplicity.
+const GIT_TIMEOUT_MS = 60_000;
 
 let mainWindow;
 let pythonBridge;
@@ -446,6 +459,26 @@ ipcMain.handle('system:run-command-streaming', async (event, command) => {
         let stdoutData = '';
         let stderrData = '';
 
+        // Hard-kill timeout — matches system:run-command's 5-minute cap.
+        // Without this, a hung streaming command (e.g. 'graphbus negotiate'
+        // with an unresponsive API, or any command waiting on stdin) runs
+        // forever: the subprocess leaks, the IPC promise never resolves, and
+        // the UI spinner keeps spinning until the Electron window is closed.
+        // proc.kill() sends SIGTERM by default; SIGKILL ensures the subprocess
+        // is reaped even if it ignores SIGTERM (e.g. Python with custom signal
+        // handlers).  The settled flag prevents double-resolution if the
+        // process exits naturally at almost the same moment the timer fires.
+        const STREAM_TIMEOUT_MS = 300_000; // 5 minutes — same as system:run-command
+        let settled = false;
+        const killTimer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            console.error(`[streaming] command timed out after ${STREAM_TIMEOUT_MS / 1000}s — killing subprocess`);
+            proc.kill('SIGKILL');
+            event.sender.send('command-error', { error: `Command timed out after ${STREAM_TIMEOUT_MS / 1000}s` });
+            resolve({ success: false, error: `Streaming command timed out after ${STREAM_TIMEOUT_MS / 1000}s` });
+        }, STREAM_TIMEOUT_MS);
+
         // Stream stdout line by line
         proc.stdout.on('data', (data) => {
             const text = data.toString();
@@ -472,6 +505,10 @@ ipcMain.handle('system:run-command-streaming', async (event, command) => {
 
         // Handle process completion
         proc.on('close', (code) => {
+            if (settled) return; // timed out — already resolved above
+            settled = true;
+            clearTimeout(killTimer); // process exited naturally; cancel the kill timer
+
             // Send completion event
             event.sender.send('command-complete', { code });
 
@@ -484,6 +521,10 @@ ipcMain.handle('system:run-command-streaming', async (event, command) => {
 
         // Handle errors
         proc.on('error', (error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(killTimer);
+
             event.sender.send('command-error', { error: error.message });
 
             resolve({
@@ -498,15 +539,37 @@ ipcMain.handle('graphbus:build', async (event, config) => {
     try {
         console.log('Building agents with config:', config);
 
-        // Add timeout to prevent hanging
+        // Race the build against a 30 s deadline.
+        //
+        // The timer reference is saved so we can cancel it the moment the build
+        // finishes (success or non-timeout error) — without clearTimeout(), the
+        // 30 s countdown kept ticking as a leaked timer after every successful
+        // build, holding a Node.js handle unnecessarily.  .unref() is a safety
+        // net: if the timer somehow survives until Electron tries to quit, it
+        // won't block the process from exiting.
+        //
+        // Note: the timeout only rejects the outer Promise — the underlying
+        // PythonShell subprocess is NOT killed when it fires (python-shell's
+        // runString() static API provides no cancellation handle).  A timed-out
+        // build will continue in the background until Python finishes or the
+        // Electron window is closed.
+        let timeoutId;
         const buildPromise = pythonBridge.buildAgents(config);
-        const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Build timeout after 30 seconds')), 30000)
-        );
+        const timeoutPromise = new Promise((_, reject) => {
+            timeoutId = setTimeout(
+                () => reject(new Error('Build timeout after 30 seconds')),
+                30_000
+            ).unref();
+        });
 
-        const result = await Promise.race([buildPromise, timeoutPromise]);
+        let result;
+        try {
+            result = await Promise.race([buildPromise, timeoutPromise]);
+        } finally {
+            clearTimeout(timeoutId); // cancel timer whether build succeeded, failed, or timed out
+        }
+
         console.log('Build result:', result);
-
         return { success: true, result };
     } catch (error) {
         console.error('Build error:', error);
@@ -559,6 +622,33 @@ ipcMain.handle('graphbus:get-stats', async (event) => {
     }
 });
 
+// Transform the raw graph.json structure into the shape the UI expects.
+//
+// graph.json stores edges as { src, dst } and nests agent metadata under
+// node.data, but the renderer expects { source, target } and a flat node
+// object.  This conversion was previously duplicated verbatim in both the
+// graphbus:load-graph and graphbus:rehydrate-state handlers — a single
+// schema change (e.g. adding a 'dependencies' field) would have required
+// two independent edits.  Centralising it here means both handlers stay
+// in sync automatically.
+function transformGraphData(graphData) {
+    return {
+        nodes: graphData.nodes.map(node => ({
+            id: node.name,
+            name: node.name,
+            module: node.data.module,
+            class_name: node.data.class_name,
+            methods: node.data.methods || [],
+            subscriptions: node.data.subscriptions || [],
+        })),
+        edges: graphData.edges.map(edge => ({
+            source: edge.src,  // graph.json uses 'src', not 'source'
+            target: edge.dst,  // graph.json uses 'dst', not 'target'
+            type: edge.data?.edge_type || 'depends_on',
+        })),
+    };
+}
+
 ipcMain.handle('graphbus:load-graph', async (event, artifactsDir) => {
     try {
         // Read graph.json directly - much simpler than Python bridge
@@ -570,28 +660,11 @@ ipcMain.handle('graphbus:load-graph', async (event, artifactsDir) => {
 
         const graphData = JSON.parse(fs.readFileSync(graphJsonPath, 'utf-8'));
 
-        // Transform to expected format for UI
-        const nodes = graphData.nodes.map(node => ({
-            id: node.name,
-            name: node.name,
-            module: node.data.module,
-            class_name: node.data.class_name,
-            methods: node.data.methods || [],
-            subscriptions: node.data.subscriptions || []
-        }));
-
-        const edges = graphData.edges.map(edge => ({
-            source: edge.src,  // graph.json uses 'src', not 'source'
-            target: edge.dst,  // graph.json uses 'dst', not 'target'
-            type: edge.data?.edge_type || 'depends_on'
-        }));
-
         return {
             success: true,
             result: {
-                nodes,
-                edges,
-                topics: [] // Can be loaded from topics.json if needed
+                ...transformGraphData(graphData),
+                topics: [] // topics.json is loaded separately in rehydrate-state
             }
         };
     } catch (error) {
@@ -630,26 +703,10 @@ ipcMain.handle('graphbus:rehydrate-state', async (event, workingDirectory) => {
             topics:              loadJson('topics.json'),
         };
 
-        // graph.json needs an additional shape transform: the raw format uses
-        // 'src'/'dst' for edges and nests agent metadata under node.data, but
-        // the UI expects 'source'/'target' and a flat node structure.
+        // graph.json needs an additional shape transform — see transformGraphData().
         const graphData = loadJson('graph.json');
         if (graphData) {
-            state.graph = {
-                nodes: graphData.nodes.map(node => ({
-                    id: node.name,
-                    name: node.name,
-                    module: node.data.module,
-                    class_name: node.data.class_name,
-                    methods: node.data.methods || [],
-                    subscriptions: node.data.subscriptions || []
-                })),
-                edges: graphData.edges.map(edge => ({
-                    source: edge.src,  // graph.json uses 'src', not 'source'
-                    target: edge.dst,  // graph.json uses 'dst', not 'target'
-                    type: edge.data?.edge_type || 'depends_on'
-                }))
-            };
+            state.graph = transformGraphData(graphData);
         }
 
         return { success: true, result: state };
@@ -679,19 +736,20 @@ ipcMain.handle('conversation:save', async (event, conversationData) => {
         const conversationDir = path.join(workingDirectory, '.graphbus');
         const conversationFile = path.join(conversationDir, 'conversation_history.json');
 
-        // Ensure .graphbus directory exists
-        if (!fs.existsSync(conversationDir)) {
-            fs.mkdirSync(conversationDir, { recursive: true });
-        }
+        // mkdir({ recursive: true }) is idempotent — no existsSync needed, and
+        // the await ensures the directory is present before we write.
+        await fsp.mkdir(conversationDir, { recursive: true });
 
-        // Save conversation with metadata
         const data = {
             timestamp: new Date().toISOString(),
             workingDirectory: workingDirectory,
             messages: conversationData
         };
 
-        fs.writeFileSync(conversationFile, JSON.stringify(data, null, 2), 'utf-8');
+        // Async write: never blocks the Electron main-process event loop.
+        // Conversation files can exceed 100 KB after a long session; writeFileSync
+        // on a file that size would freeze the UI for a perceptible moment.
+        await fsp.writeFile(conversationFile, JSON.stringify(data, null, 2), 'utf-8');
         return { success: true };
     } catch (error) {
         console.error('Error saving conversation:', error);
@@ -703,11 +761,17 @@ ipcMain.handle('conversation:load', async (event) => {
     try {
         const conversationFile = path.join(workingDirectory, '.graphbus', 'conversation_history.json');
 
-        if (!fs.existsSync(conversationFile)) {
-            return { success: true, result: null };
+        // Try to read directly; catch ENOENT instead of existsSync + readFileSync.
+        // existsSync + readFileSync is a TOCTOU race: the file could be deleted
+        // between the check and the read.  The try/catch approach is atomic.
+        let raw;
+        try {
+            raw = await fsp.readFile(conversationFile, 'utf-8');
+        } catch (e) {
+            if (e.code === 'ENOENT') return { success: true, result: null };
+            throw e; // unexpected error — re-throw to the outer catch
         }
-
-        const data = JSON.parse(fs.readFileSync(conversationFile, 'utf-8'));
+        const data = JSON.parse(raw);
         return { success: true, result: data };
     } catch (error) {
         console.error('Error loading conversation:', error);
@@ -719,10 +783,12 @@ ipcMain.handle('conversation:clear', async (event) => {
     try {
         const conversationFile = path.join(workingDirectory, '.graphbus', 'conversation_history.json');
 
-        if (fs.existsSync(conversationFile)) {
-            fs.unlinkSync(conversationFile);
+        // Attempt unlink; silently ignore ENOENT (nothing to delete is fine).
+        try {
+            await fsp.unlink(conversationFile);
+        } catch (e) {
+            if (e.code !== 'ENOENT') throw e;
         }
-
         return { success: true };
     } catch (error) {
         console.error('Error clearing conversation:', error);
@@ -741,7 +807,12 @@ ipcMain.handle('conversation:clear', async (event) => {
 // metacharacters are interpreted.
 ipcMain.handle('git:create-branch', async (event, branchName) => {
     try {
-        await execFileAsync('git', ['checkout', '-b', branchName], { cwd: workingDirectory });
+        // execFile (not exec) so branchName is never interpolated into a shell
+        // command string — a name containing shell metacharacters can't inject.
+        await execFileAsync('git', ['checkout', '-b', branchName], {
+            cwd: workingDirectory,
+            timeout: GIT_TIMEOUT_MS,
+        });
 
         return { success: true, branch: branchName };
     } catch (error) {
@@ -751,9 +822,20 @@ ipcMain.handle('git:create-branch', async (event, branchName) => {
 
 ipcMain.handle('git:commit-and-push', async (event, message, branchName) => {
     try {
-        await execFileAsync('git', ['add', '.'], { cwd: workingDirectory });
-        await execFileAsync('git', ['commit', '-m', message], { cwd: workingDirectory });
-        await execFileAsync('git', ['push', '-u', 'origin', branchName], { cwd: workingDirectory });
+        await execFileAsync('git', ['add', '.'], {
+            cwd: workingDirectory,
+            timeout: GIT_TIMEOUT_MS,
+        });
+        await execFileAsync('git', ['commit', '-m', message], {
+            cwd: workingDirectory,
+            timeout: GIT_TIMEOUT_MS,
+        });
+        // push is a network call — the timeout here is the primary safety net
+        // against a hung connection freezing the Electron main-process event loop.
+        await execFileAsync('git', ['push', '-u', 'origin', branchName], {
+            cwd: workingDirectory,
+            timeout: GIT_TIMEOUT_MS,
+        });
 
         return { success: true };
     } catch (error) {
@@ -766,7 +848,7 @@ ipcMain.handle('github:create-pr', async (event, title, body, branchName) => {
         const { stdout } = await execFileAsync(
             'gh',
             ['pr', 'create', '--title', title, '--body', body, '--head', branchName],
-            { cwd: workingDirectory }
+            { cwd: workingDirectory, timeout: GIT_TIMEOUT_MS }
         );
 
         // Extract PR URL from output
@@ -797,7 +879,7 @@ ipcMain.handle('github:get-pr-comments', async (event, prNumber) => {
                 '--json', 'comments',
                 '--jq', '.comments[] | {author: .author.login, body: .body, createdAt: .createdAt}',
             ],
-            { cwd: workingDirectory }
+            { cwd: workingDirectory, timeout: GIT_TIMEOUT_MS }
         );
 
         const comments = stdout.trim().split('\n').filter(line => line).map(line => JSON.parse(line));
@@ -813,18 +895,20 @@ ipcMain.handle('pr:save-tracking', async (event, prData) => {
         const graphbusDir = path.join(workingDirectory, '.graphbus');
         const trackingFile = path.join(graphbusDir, 'pr_tracking.json');
 
+        // Read existing tracking data asynchronously.  Fall back to empty list
+        // on ENOENT (first PR tracked in this directory).
         let tracking = { prs: [] };
-        if (fs.existsSync(trackingFile)) {
-            tracking = JSON.parse(fs.readFileSync(trackingFile, 'utf-8'));
+        try {
+            const raw = await fsp.readFile(trackingFile, 'utf-8');
+            tracking = JSON.parse(raw);
+        } catch (e) {
+            if (e.code !== 'ENOENT') throw e;
         }
 
-        // Add new PR data
-        tracking.prs.push({
-            ...prData,
-            timestamp: Date.now()
-        });
+        tracking.prs.push({ ...prData, timestamp: Date.now() });
 
-        fs.writeFileSync(trackingFile, JSON.stringify(tracking, null, 2));
+        await fsp.mkdir(graphbusDir, { recursive: true });
+        await fsp.writeFile(trackingFile, JSON.stringify(tracking, null, 2));
 
         return { success: true };
     } catch (error) {
@@ -836,11 +920,14 @@ ipcMain.handle('pr:load-tracking', async (event) => {
     try {
         const trackingFile = path.join(workingDirectory, '.graphbus', 'pr_tracking.json');
 
-        if (!fs.existsSync(trackingFile)) {
-            return { success: true, result: { prs: [] } };
+        let raw;
+        try {
+            raw = await fsp.readFile(trackingFile, 'utf-8');
+        } catch (e) {
+            if (e.code === 'ENOENT') return { success: true, result: { prs: [] } };
+            throw e;
         }
-
-        const data = JSON.parse(fs.readFileSync(trackingFile, 'utf-8'));
+        const data = JSON.parse(raw);
         return { success: true, result: data };
     } catch (error) {
         return { success: false, error: error.message };
