@@ -620,6 +620,26 @@ async function intelligentMethodCall(command) {
     }
 }
 
+// ─── Shared clipboard helper ───────────────────────────────────────────────
+// The copy-button pattern (write → flash ✓ → reset after 2 s, or flash ✗ on
+// error) was duplicated verbatim in four places (addMessage, loadConversation,
+// startNegotiation, copyStateContent).  Centralising it here means the
+// feedback timing and icon logic live in exactly one place.
+function flashCopyBtn(btn, text) {
+    navigator.clipboard.writeText(text).then(() => {
+        btn.innerHTML = '✓';
+        btn.classList.add('copied');
+        setTimeout(() => {
+            btn.innerHTML = '📋';
+            btn.classList.remove('copied');
+        }, 2000);
+    }).catch(err => {
+        console.error('Failed to copy:', err);
+        btn.innerHTML = '✗';
+        setTimeout(() => { btn.innerHTML = '📋'; }, 2000);
+    });
+}
+
 // Chat functions
 function addMessage(text, type = 'assistant') {
     const messages = document.getElementById('messages');
@@ -639,23 +659,7 @@ function addMessage(text, type = 'assistant') {
     copyBtn.className = 'copy-btn';
     copyBtn.innerHTML = '📋';
     copyBtn.title = 'Copy to clipboard';
-    copyBtn.onclick = () => {
-        navigator.clipboard.writeText(text).then(() => {
-            // Show feedback
-            copyBtn.innerHTML = '✓';
-            copyBtn.classList.add('copied');
-            setTimeout(() => {
-                copyBtn.innerHTML = '📋';
-                copyBtn.classList.remove('copied');
-            }, 2000);
-        }).catch(err => {
-            console.error('Failed to copy:', err);
-            copyBtn.innerHTML = '✗';
-            setTimeout(() => {
-                copyBtn.innerHTML = '📋';
-            }, 2000);
-        });
-    };
+    copyBtn.onclick = () => flashCopyBtn(copyBtn, text);
 
     msgWrapper.appendChild(msg);
     msgWrapper.appendChild(copyBtn);
@@ -712,22 +716,7 @@ async function loadConversation() {
                 copyBtn.className = 'copy-btn';
                 copyBtn.innerHTML = '📋';
                 copyBtn.title = 'Copy to clipboard';
-                copyBtn.onclick = () => {
-                    navigator.clipboard.writeText(msg.text).then(() => {
-                        copyBtn.innerHTML = '✓';
-                        copyBtn.classList.add('copied');
-                        setTimeout(() => {
-                            copyBtn.innerHTML = '📋';
-                            copyBtn.classList.remove('copied');
-                        }, 2000);
-                    }).catch(err => {
-                        console.error('Failed to copy:', err);
-                        copyBtn.innerHTML = '✗';
-                        setTimeout(() => {
-                            copyBtn.innerHTML = '📋';
-                        }, 2000);
-                    });
-                };
+                copyBtn.onclick = () => flashCopyBtn(copyBtn, msg.text);
 
                 msgWrapper.appendChild(msgElement);
                 msgWrapper.appendChild(copyBtn);
@@ -1178,23 +1167,9 @@ async function runStreamingCommand(command) {
     copyBtn.className = 'copy-btn';
     copyBtn.innerHTML = '📋';
     copyBtn.title = 'Copy to clipboard';
-    copyBtn.onclick = () => {
-        const textToCopy = messageDiv.textContent;
-        navigator.clipboard.writeText(textToCopy).then(() => {
-            copyBtn.innerHTML = '✓';
-            copyBtn.classList.add('copied');
-            setTimeout(() => {
-                copyBtn.innerHTML = '📋';
-                copyBtn.classList.remove('copied');
-            }, 2000);
-        }).catch(err => {
-            console.error('Failed to copy:', err);
-            copyBtn.innerHTML = '✗';
-            setTimeout(() => {
-                copyBtn.innerHTML = '📋';
-            }, 2000);
-        });
-    };
+    // Use a getter so the button always copies the *current* messageDiv text —
+    // the negotiation streams content into messageDiv after the button is created.
+    copyBtn.onclick = () => flashCopyBtn(copyBtn, messageDiv.textContent);
 
     msgWrapper.appendChild(messageDiv);
     msgWrapper.appendChild(copyBtn);
@@ -1992,20 +1967,7 @@ function formatNegotiations(data) {
 
 function copyStateContent() {
     const copyBtn = document.getElementById('copyStateBtn');
-    navigator.clipboard.writeText(currentStateFileContent).then(() => {
-        copyBtn.innerHTML = '✓';
-        copyBtn.classList.add('copied');
-        setTimeout(() => {
-            copyBtn.innerHTML = '📋';
-            copyBtn.classList.remove('copied');
-        }, 2000);
-    }).catch(err => {
-        console.error('Failed to copy:', err);
-        copyBtn.innerHTML = '✗';
-        setTimeout(() => {
-            copyBtn.innerHTML = '📋';
-        }, 2000);
-    });
+    flashCopyBtn(copyBtn, currentStateFileContent);
 }
 
 // Show negotiation modal
